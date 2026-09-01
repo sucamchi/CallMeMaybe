@@ -1,0 +1,26 @@
+[project]
+name = "CallMeMaybe"
+version = "1.0.0"
+requires-python = ">=3.10"
+description = "Introduction to function calling in LLMs"
+authors = [
+    {name = "scamlett"}
+]
+dependencies = [
+    "numpy",
+    "pydantic>=2",
+    "flake8",
+    "mypy",
+    "llm-sdk",
+    "accelerate",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+llm-sdk = { path = "llm_sdk", editable = true }
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
