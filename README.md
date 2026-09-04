@@ -1,4 +1,4 @@
-*This project has been created as part of the 42 curriculum by scamlett*
+*This project has been created as part of the 42 curriculum by scamlett.*
 # CallMeMaybe
 
 ## Description
@@ -9,7 +9,7 @@ into a structured **function call**. Given:
 "What is the sum of 2 and 3?"
 ```
 
-it does not answer `5`. It answers:
+it does not answer "5". It answers:
 
 ```json
 {"prompt": "What is the sum of 2 and 3?",
