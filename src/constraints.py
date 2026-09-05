@@ -1,9 +1,5 @@
 """Constrained decoding: at each step, mask out any token that would break
 JSON validity or the expected value type, and only pick from what remains.
-
-The two "hard" pieces here are number-prefix validation and the
-masked-vs-unmasked argmax stopping rule, so they stay explicit and are
-not collapsed into anything clever.
 """
 
 import json
@@ -30,22 +26,22 @@ def is_number_prefix_valid(text: str) -> bool:
         index += 1
     digit_count = index - integer_start
     if digit_count == 0:
-        return False
+        return False  # no digits at all
     if digit_count > 1 and text[integer_start] == "0":
         return False  # JSON forbids leading zeros, e.g. "01"
     if index == len(text):
         return True
 
     if text[index] == ".":
-        index += 1
-        digits_after_dot = 0
+        index += 1  # skip the dot
+        digits_after_dot = 0  # count how many digits follow the dot
         while index < len(text) and text[index].isdigit():
-            index += 1
+            index += 1  # skip the digit
             digits_after_dot += 1
         if index == len(text):
             return True
         if digits_after_dot == 0:
-            return False
+            return False  # JSON forbids a dot with no digits after it
 
     if index < len(text) and text[index] in "eE":
         index += 1
@@ -70,7 +66,7 @@ def is_string_safe_text(text: str) -> bool:
 def build_char_class_mask(
         vocabulary: dict[int, str], vocab_size: int,
         is_allowed: Callable[[str], bool]) -> np.ndarray:
-    """Precompute, once, which token ids decode to a given char class."""
+    """Precompute which token ids decode to a given char class."""
     mask = np.zeros(vocab_size, dtype=bool)
     for token_id, text in vocabulary.items():
         if 0 <= token_id < vocab_size and text and is_allowed(text):
