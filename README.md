@@ -3,13 +3,13 @@
 
 ## Description
 CallMeMaybe is a command-line tool that turns a natural-language request
-into a structured **function call**. Given:
+into a structured **function call**. For example, given the prompt:
 
 ```
 "What is the sum of 2 and 3?"
 ```
 
-it does not answer "5". It answers:
+it does not answer "5". Instead, it answers:
 
 ```json
 {"prompt": "What is the sum of 2 and 3?",
@@ -17,8 +17,7 @@ it does not answer "5". It answers:
  "parameters": {"a": 2.0, "b": 3.0}}
 ```
 
-That is all function calling is: a translation layer between how humans
-ask and how programs are called. The program works out *which* tool
+That is all function calling is: the program works out *which* tool
 would answer the question and *what arguments* to hand it. It never
 adds anything.
 
@@ -27,15 +26,10 @@ politely for JSON, a model that size returns something parseable maybe
 a third of the time. This tool returns valid, schema-correct JSON
 **100% of the time**, because validity never depends on the model
 behaving — it is enforced while the text is being generated. That
-technique is called **constrained decoding**, and the rest of this
-README explains it from the ground up.
+technique is called **constrained decoding**.
 
----
 
 ## How it works, from scratch
-
-Five ideas, each small on its own. If you already know them, skip to
-[Algorithm explanation](#algorithm-explanation).
 
 ### 1. Models read tokens, not letters
 
@@ -49,41 +43,29 @@ sample prompt, straight out of `model.encode()`:
  -> [ 3838,   374,   279,    2629,   315,  220,  17,   323,  220,  18,  30 ]
 ```
 
-Note the leading spaces: `' sum'` (id 2629) and `'sum'` (id 1242) are
-**different tokens**. This trips people up constantly, and it is why
-this project always re-encodes the whole running text instead of gluing
-pre-encoded pieces together.
-
 ### 2. The model outputs logits, one per possible token
 
 Hand the model a list of ids and it returns one **logit** per token in
 its vocabulary — 151,936 numbers for Qwen3-0.6B. A logit is an
-unnormalised score: higher means "more likely to come next". The
-familiar "the model wrote a sentence" is just:
+unnormalised score: higher means "more likely to come next".
+So the next token is chosen by taking the `argmax` of that vector:
 
 ```python
 next_id = argmax(logits)      # the highest-scoring token wins
 ```
 
-`llm_sdk.get_logits_from_input_ids(ids)` gives exactly one step of
-this, deliberately. Writing the loop around it is the project.
-
-### 3. Generation is a loop you write yourself
+### 3. Generation is written as a loop: ask the model, pick the best token, append it, repeat.
 
 ```python
 ids = model.encode(prompt)
-while not done:
+while not finished:
     logits = model.get_logits_from_input_ids(ids)
     ids.append(argmax(logits))
 ```
 
-Run that a few hundred times and you have a paragraph. Run it with a
-censored list of candidates and you have this project.
-
 ### 4. Constrained decoding: censor the list before you pick
 
-Here is the whole trick, and it is smaller than it sounds. Between
-"get the logits" and "pick the best one", insert one step: set the
+Between "get the logits" and "pick the best one", insert one step: set the
 logit of every token you do not want to negative infinity.
 
 ```python
@@ -95,17 +77,15 @@ next_id = int(numpy.argmax(logits))             # can only be an allowed one
 A `-inf` token can never win an `argmax`. The model still decides — but
 only among the options that were permitted. If a number is being
 generated and only number-shaped tokens are allowed, the next character
-*cannot* be anything else. Not "usually". Cannot.
+*cannot* be anything else.
 
-That is why reliability jumps to 100%: validity stops being something
-you hope for and becomes something the data structure makes impossible
-to violate.
+That is how reliability jumps to 100%.
 
 ### 5. `vocab.json` does not contain plain text
 
 To mask tokens you must know what each id *says* — you need an
 `{id: text}` map. `get_path_to_vocab_file()` hands you a `vocab.json`
-that looks like a `{text: id}` map. It isn't quite.
+that looks like a `{text: id}` map.
 
 Tokenizers are byte-level: a token is a sequence of raw **bytes**, and
 bytes like `0x00` or `0x0A` cannot sit inside a JSON string. So
@@ -120,17 +100,14 @@ vocab.json:  "Ċ"    -> 198       after decoding:  198  -> "\n"
 
 [`src/vocab.py`](src/vocab.py) rebuilds that byte-to-unicode table (the
 standard one from OpenAI's GPT-2 `encoder.py`) and reverses it, turning
-151,643 vocabulary entries into a real `dict[int, str]`. Get this wrong
-and every mask built from it is subtly wrong, in a way that looks like
-"the model is just bad" rather than like a bug.
+151,643 vocabulary entries into a real `dict[int, str]`.
 
----
 
 ## Algorithm explanation
 
 Generation follows a **skeleton + slot** approach.
 
-Look hard at the output and ask which characters were ever in doubt:
+In the following example:
 
 ```json
 {"name": "fn_add_numbers", "parameters": {"a": 40.0, "b": 2.0}}
@@ -193,7 +170,7 @@ one token at a time, with real logit masking.
 - **Booleans** reuse slot 1's machinery: `"true"` and `"false"` are
   scored as two candidates.
 - **Any other type** (absent from the sample data, but possible) is
-  generated as a string, with a warning on stderr instead of a crash.
+  generated as a string rather than rejected.
 
 ### Putting one prompt together
 
@@ -215,54 +192,42 @@ which re-adds the quotes around a string and turns a bool into
 decision to be conditioned on.
 
 The prompt itself (instructions plus one worked example using invented
-function names) only influences *which* valid answer comes out.
-Deleting it would hurt accuracy and could never produce invalid output
-— structure comes from the mask, not from asking nicely.
+function names) only influences *which* valid answer comes out — it
+could never produce invalid output, because structure comes from the
+mask, not from asking nicely. It is not decoration, though: removing
+the worked example drops function selection on the sample set from
+11/11 to 7/11, because the model starts picking the function with the
+most arguments over the one whose description matches.
 
----
 
-## Code map
+## Execution flow
 
-| File | What lives there |
-| --- | --- |
-| [`src/__main__.py`](src/__main__.py) | CLI flags, the pipeline, and the single place errors become a message instead of a traceback |
-| [`src/io_utils.py`](src/io_utils.py) | Reading the two input JSON files, writing the output one |
-| [`src/schema.py`](src/schema.py) | The pydantic models: a function, a parameter, a prompt, a result |
-| [`src/vocab.py`](src/vocab.py) | `vocab.json` -> `{id: text}` (idea 5 above) |
-| [`src/constraints.py`](src/constraints.py) | `GenerationContext`, the masks, and all constrained decoding |
-| [`src/generator.py`](src/generator.py) | Prompt text, function choice, per-prompt assembly, fallback |
+The flow is one straight line:
 
-The flow is one straight line — no callbacks, no inheritance:
 
-```
-parse args -> load catalog -> load prompts -> load model
-           -> build context (decode vocab, precompute masks)
-           -> per prompt: choose function, then fill each slot
-           -> write the JSON array
-```
+parse args -> load catalog -> load prompts -> load model -> build context (decode vocab, precompute masks) -> per prompt: choose function, then fill each slot -> write the JSON array
 
----
+
 
 ## Design decisions
 - **One context object instead of four arguments.**
   `GenerationContext` (a pydantic model) holds the model, the decoded
-  vocabulary and both masks — everything every decoding step needs. So
+  vocabulary and both masks. So
   the decoding functions take `(context, prompt_ids)` and nothing else,
   and its three small methods (`encode`, `logits`, `text_of`) keep the
   SDK's tensor handling in exactly one place.
 - **Functions over classes everywhere else.** Only things holding real
-  data are pydantic models, as required: `FunctionDefinition`,
-  `FunctionParameter`, `PromptRecord` and `ResultRecord` at the I/O
-  boundary, plus the context above. The decoding logic is plain
-  functions with local variables — there is no other state worth
-  grouping into an object.
+  data are pydantic models, as required: `FunctionDef`, `FunctionParam`,
+  `Prompt` and `OutputResult` at the I/O boundary, plus the context
+  above. The decoding logic is plain
+  functions with local variables.
 - **Fatal vs. survivable failures, decided deliberately.** A broken
   catalog is fatal: nothing can be called, so the run stops with a
   clear message. A broken *prompt* is not — it is skipped with a
-  warning and the rest still run. And if generation for one prompt
-  fails or runs away, `fallback_result()` still emits a valid,
-  schema-correct entry, so the output array always holds exactly one
-  entry per accepted prompt.
+  warning and the rest still run, so the output array holds exactly one
+  entry per accepted prompt. There is no per-prompt recovery path
+  beyond that: generation cannot fail once a catalog has loaded, and a
+  handler for a case that cannot arise would be dead code.
 - **Re-encoding the running text** after every skeleton insertion,
   instead of splicing pre-encoded id fragments together. BPE token
   boundaries shift with what precedes them, so splicing can build a
@@ -277,16 +242,13 @@ parse args -> load catalog -> load prompts -> load model
   path — is unreachable. Escaping on the way out would allow those,
   but then a generated `"` could no longer be read as "the value is
   finished", which is exactly what the stopping rule relies on.
-- **Lazy `llm_sdk` import.** `run()` imports `Small_LLM_Model` only
-  when no model was passed in, so a bad input file is reported
-  instantly rather than after torch has loaded — and the whole pipeline
-  can be driven by a fake model with no download and no GPU.
+- **Lazy `llm_sdk` import.** `run()` imports `Small_LLM_Model` after
+  the input files have been read, so a bad path or malformed JSON is
+  reported instantly rather than after torch has finished loading.
 
----
 
 ## Performance analysis
-Measured on the reference machine (NVIDIA RTX 4060 Laptop GPU, which
-`llm_sdk` auto-selects, `float16`) against the bundled sample files:
+Measured on the reference machine against the bundled sample files:
 5 functions, 11 prompts, 1-3 parameters each.
 
 | Stage | Cost |
@@ -318,12 +280,6 @@ Two consequences worth stating plainly:
   pattern. A larger model would choose better; nothing about the
   output's validity changes either way.
 
-That is comfortably inside the subject's "under five minutes for all
-prompts" — about 20x of headroom on GPU, and still well inside it on
-CPU.
-
----
-
 ## Challenges faced
 - **Decoding `vocab.json` correctly.** The file maps ids to
   byte-substituted placeholder strings, not to text. Getting a usable
@@ -347,12 +303,11 @@ CPU.
   implementing the same four public methods and returning scripted
   logits makes the decoding logic testable in milliseconds.
 
----
 
 ## Testing strategy
 Testing happens at two levels.
 
-**Committed edge-case inputs.** `data/input/extra_tests/` holds
+**Committed edge-case inputs.** `data/input/tests/` holds
 alternative catalogs and prompt lists that go well past the bundled
 samples, because the subject warns that the input files are swapped
 during peer review. They cover `boolean` arguments and a zero-argument
@@ -365,32 +320,34 @@ backslashes, newlines and non-ASCII, and prompts that are unrelated,
 empty, whitespace-only or injection-flavoured. A second group of
 deliberately malformed files checks the error paths the subject names:
 invalid JSON, a JSON object where an array is required, an empty
-catalog, missing fields, duplicate function names, and missing files.
-`data/input/extra_tests/README.md` lists every case with the outcome it
-should produce. They are run by pointing the normal CLI at them:
+catalog, missing fields, and missing files.
 
-```
-uv run python -m src \
-  --functions_definition data/input/extra_tests/functions_mixed_types.json \
-  --input data/input/extra_tests/prompts_mixed_types.json \
-  --output data/output/mixed_types.json
-```
+**`make test` runs them.** There is no test framework and no test
+code: the target invokes the same CLI a reviewer would. It is one
+generation run — `functions_all.json` (17 functions) against
+`prompts_all.json` (40 prompts) — so the model is loaded exactly once,
+followed by eight malformed-input cases inverted with a shell `!`.
+Those pass by failing, and they are nearly free: a bad input file is
+reported before `llm_sdk` is ever imported. Make stops at the first
+case that misbehaves. The whole target takes about three minutes and
+writes to the same `data/output/function_calling_results.json` as
+`make run` — no separate output files.
 
-**A fake model during development.** Because `run()` accepts a model
-object, every part of the program (vocab decoding, number/string/
-boolean generation, the full pipeline, the CLI error paths) can be
-driven by a stand-in implementing the same public interface as
-`llm_sdk.Small_LLM_Model` and returning scripted logits — no download,
-no GPU, fully deterministic. That is what caught the raw-logit scoring
-bug above.
+What this checks is the program's real behaviour end to end: that a
+catalog of unfamiliar shapes still produces one valid entry per prompt,
+and that a malformed file produces a readable error and a non-zero exit
+instead of a traceback. Both merged files are themselves entirely
+valid — they load with no warning — so anything printed during that
+first run is a real problem, not expected noise. What it deliberately
+does not do is assert which function the model picks: that is the
+model's judgement, it is reviewed by reading the output, and pinning it
+down in an assertion would only encode today's answers.
 
 Final verification is end to end against the real model: `make run` on
 the bundled files, checking the output is valid JSON, has one entry per
 prompt with exactly the three required keys, and that the names and
 argument values are actually right. Every change also has to leave
 `make lint` and `make lint-strict` clean.
-
----
 
 ## Example usage
 ```
@@ -415,36 +372,31 @@ containing `"What is the sum of 2 and 3?"`,
 ]
 ```
 
-Every entry has exactly three keys — `prompt`, `name`, `parameters` —
-and nothing else. Numbers come back as JSON numbers, booleans as
-`true`/`false`, strings as strings.
-
-Failures are reported, never crashed:
-
-```
-$ uv run python -m src --functions_definition missing.json
-Error: could not read missing.json: [Errno 2] No such file or directory: 'missing.json'
-```
-
 # Instructions
-- Requires Python 3.10+ and uv.
-- `make install` (or `uv sync`) installs everything, including
-  `llm_sdk` (a local path dependency) and its own dependencies (torch,
-  transformers, huggingface-hub) needed to actually run the model.
-- `make run` runs the CLI against the default `data/input/` files.
-- `make debug` runs it under `pdb`.
-- `make lint` / `make lint-strict` run `flake8` and `mypy`.
-- `make clean` removes caches.
+
+Requires Python 3.10+ and uv.
+
+```bash
+make install # installs everything, including llm_sdk and its dependencies
+make run     # runs the CLI against the default `data/input/` files.
+make debug   # runs it under pdb.
+make clean   # removes caches.
+```
+
+# Bonus
+
 
 ## Resources
 - [JSON specification (RFC 8259)](https://www.rfc-editor.org/rfc/rfc8259)
-  — the number and string grammars that `is_number_prefix_valid` and
-  `is_string_safe_text` implement.
-- [OpenAI GPT-2 `encoder.py`](https://github.com/openai/gpt-2/blob/master/src/encoder.py)
-  — source of the standard byte-to-unicode table reimplemented in
-  [`src/vocab.py`](src/vocab.py).
+- [OpenAI GPT-2 source code](https://github.com/openai/gpt-2/blob/master/src/encoder.py)
 - [Hugging Face tokenizers: byte-level BPE](https://huggingface.co/docs/tokenizers/en/index)
 - [uv documentation](https://docs.astral.sh/uv/)
+- [Function calling internals: Grammar and Constrained Sampling](https://www.salmanq.com/blog/llm-constrained-sampling/)
+- [Controlling your LLM: Deep dive into Constrained Generation](https://medium.com/@docherty/controlling-your-llm-deep-dive-into-constrained-generation-1e561c736a20)
+- [Constrained Decoding: A Primer](https://arxiv.org/abs/2305.10101)
+- [Logits and next-token prediction](https://mikexcohen.substack.com/p/llm-breakdown-26-logits-and-next)
+- [Constrained Decoding](https://mbrenndoerfer.com/writing/constrained-decoding-structured-llm-output)
 
 ## AI usage
 
+AI was used as a tutor to understand new concepts (tokenization, logits, constrained decoding...) and to help in error handling and edge-case testing. All code is reviewed, adapted and understood by the author.
