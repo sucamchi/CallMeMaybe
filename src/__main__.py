@@ -4,52 +4,53 @@
 import argparse
 import sys
 from pathlib import Path
-from typing import Any
 
 from src import constraints, generator, io_utils
 
-DEFAULT_FUNCTIONS_DEFINITION = Path("data/input/functions_definition.json")
-DEFAULT_INPUT = Path("data/input/function_calling_tests.json")
-DEFAULT_OUTPUT = Path("data/output/function_calling_results.json")
+FUNCDEF = Path("data/input/functions_definition.json")
+INPUT = Path("data/input/function_calling_tests.json")
+OUTPUT = Path("data/output/function_calling_results.json")
 
 
-def parse_args(argv: list[str] | None) -> argparse.Namespace:
+def parse_args() -> argparse.Namespace:
     """Parse the three file-path flags, all optional."""
-    parser = argparse.ArgumentParser(
-        prog="src", description="Turn prompts into structured function calls.")
-    parser.add_argument(
-        "--functions_definition", type=Path,
-        default=DEFAULT_FUNCTIONS_DEFINITION)
-    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    return parser.parse_args(argv)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--functions_definition", type=Path, default=FUNCDEF)
+    parser.add_argument("--input", type=Path, default=INPUT)
+    parser.add_argument("--output", type=Path, default=OUTPUT)
+    return parser.parse_args()
 
 
-def run(argv: list[str] | None = None, model: Any = None) -> None:
-    """Run the whole pipeline; pass a fake model in to test without one."""
-    args = parse_args(argv)
+def run() -> None:
+    """Run the whole pipeline, from input files to output file."""
+    args = parse_args()
+
+    print(f"Loading functions from {args.functions_definition}")
     functions = io_utils.load_function_definitions(args.functions_definition)
-    prompts = io_utils.load_prompts(args.input)
+    print(f"Loaded {len(functions)} functions")
 
-    if model is None:
-        # Imported here rather than at the top so that a bad input file
-        # is reported instantly, not after torch has finished loading.
-        from llm_sdk import Small_LLM_Model
-        model = Small_LLM_Model()
+    print(f"Loading prompts from {args.input}")
+    prompts = io_utils.load_prompts(args.input)
+    print(f"Loaded {len(prompts)} prompts")
+
+    print("Loading the model")
+    from llm_sdk import Small_LLM_Model
+    model = Small_LLM_Model()
+
+    print("Building the vocabulary and decoding masks")
     context = constraints.build_generation_context(model)
+
+    print("Generating one function call per prompt")
     results = []
-    for record in prompts:
-        try:
-            results.append(generator.generate_result_for_prompt(
-                context, functions, record.prompt))
-        except generator.GenerationError as exc:
-            print(
-                f"Warning: {exc}; using fallback for "
-                f"prompt: {record.prompt!r}",
-                file=sys.stderr)
-            results.append(generator.fallback_result(functions, record.prompt))
+    for index, record in enumerate(prompts, start=1):
+        print(f"({index}/{len(prompts)}) {record.prompt!r}")
+        result = generator.generate_result_for_prompt(
+            context, functions, record.prompt)
+        print(f"{result.name}({result.parameters})")
+        results.append(result)
 
     io_utils.write_results(args.output, results)
+    print(f"Done. Results written to {args.output}")
 
 
 def main() -> None:

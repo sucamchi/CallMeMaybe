@@ -1,12 +1,8 @@
-"""Turns a GPT2-style byte-level BPE vocab.json into an id -> text map.
+"""Turns a GPT2-style BPE vocab.json into an id -> text map.
 
-This is the one piece of genuinely fiddly logic in the project, so it
-stays dense and commented rather than "simplified": the tokenizer's
-vocab.json does not map ids to plain text. It maps ids to a
-printable-but-fake string where every raw byte has been substituted
-for a printable unicode character (this is how GPT2/Qwen style
-tokenizers keep every byte value, including unprintable ones,
-representable as JSON text). To know what a token id actually decodes
+The tokenizer's vocab.json does not map ids to plain text.
+It maps ids to a string where every raw byte has been substituted
+for a printable unicode character. To know what a token id actually decodes
 to, we must reverse that byte-to-unicode substitution ourselves.
 """
 
@@ -17,25 +13,25 @@ from pathlib import Path
 def byte_to_unicode() -> dict[int, str]:
     """Build the standard GPT2 byte -> printable character mapping.
 
-    Bytes that are already "nice" printable ASCII/Latin-1 characters
+    Bytes that are already printable ASCII/Latin-1 characters
     map to themselves. Every other byte (control characters, the
     space byte, etc.) gets assigned an unused printable character
-    further up the unicode range, so every byte has a printable
-    stand-in.
+    further up the unicode range.
     """
-    nice_bytes = (
-        list(range(ord("!"), ord("~") + 1))
-        + list(range(ord("¡"), ord("¬") + 1))
-        + list(range(ord("®"), ord("ÿ") + 1))
+    bad_bytes = (
+        set(range(0, ord("!")))
+        | set(range(ord("~") + 1, ord("¡")))
+        | set(range(ord("¬") + 1, ord("®")))
     )
-    chars = list(nice_bytes)
+    mapping = {}
     next_free_char = 256
     for byte in range(256):
-        if byte not in nice_bytes:
-            nice_bytes.append(byte)
-            chars.append(next_free_char)
+        if byte in bad_bytes:
+            mapping[byte] = chr(next_free_char)
             next_free_char += 1
-    return {byte: chr(char) for byte, char in zip(nice_bytes, chars)}
+        else:
+            mapping[byte] = chr(byte)
+    return mapping
 
 
 def build_vocabulary(vocab_file_path: str) -> dict[int, str]:
