@@ -1,0 +1,235 @@
+[
+  {
+    "name": "fn_add_numbers",
+    "description": "Add two numbers together and return their sum.",
+    "parameters": {
+      "a": {
+        "type": "number"
+      },
+      "b": {
+        "type": "number"
+      }
+    },
+    "returns": {
+      "type": "number"
+    }
+  },
+  {
+    "name": "fn_greet",
+    "description": "Generate a greeting message for a person by name.",
+    "parameters": {
+      "name": {
+        "type": "string"
+      }
+    },
+    "returns": {
+      "type": "string"
+    }
+  },
+  {
+    "name": "fn_reverse_string",
+    "description": "Reverse a string and return the reversed result.",
+    "parameters": {
+      "s": {
+        "type": "string"
+      }
+    },
+    "returns": {
+      "type": "string"
+    }
+  },
+  {
+    "name": "fn_get_square_root",
+    "description": "Calculate the square root of a number.",
+    "parameters": {
+      "a": {
+        "type": "number"
+      }
+    },
+    "returns": {
+      "type": "number"
+    }
+  },
+  {
+    "name": "fn_substitute_string_with_regex",
+    "description": "Replace all occurrences matching a regex pattern in a string.",
+    "parameters": {
+      "source_string": {
+        "type": "string"
+      },
+      "regex": {
+        "type": "string"
+      },
+      "replacement": {
+        "type": "string"
+      }
+    },
+    "returns": {
+      "type": "string"
+    }
+  },
+  {
+    "name": "fn_set_alarm",
+    "description": "Set an alarm at a given hour, with a label, and say whether it repeats every day.",
+    "parameters": {
+      "hour": {
+        "type": "number"
+      },
+      "label": {
+        "type": "string"
+      },
+      "repeat_daily": {
+        "type": "boolean"
+      }
+    },
+    "returns": {
+      "type": "string"
+    }
+  },
+  {
+    "name": "fn_toggle_light",
+    "description": "Turn the light of a room on or off.",
+    "parameters": {
+      "room": {
+        "type": "string"
+      },
+      "on": {
+        "type": "boolean"
+      }
+    },
+    "returns": {
+      "type": "boolean"
+    }
+  },
+  {
+    "name": "fn_current_time",
+    "description": "Get the current time of day. Takes no arguments.",
+    "parameters": {},
+    "returns": {
+      "type": "string"
+    }
+  },
+  {
+    "name": "fn_round_number",
+    "description": "Round a number to a given amount of decimal places.",
+    "parameters": {
+      "value": {
+        "type": "number"
+      },
+      "decimals": {
+        "type": "number"
+      }
+    },
+    "returns": {
+      "type": "number"
+    }
+  },
+  {
+    "name": "fn_subtract_numbers",
+    "description": "Subtract the second number from the first and return the difference.",
+    "parameters": {
+      "a": {
+        "type": "number"
+      },
+      "b": {
+        "type": "number"
+      }
+    },
+    "returns": {
+      "type": "number"
+    }
+  },
+  {
+    "name": "fn_multiply_numbers",
+    "description": "Multiply two numbers together and return their product.",
+    "parameters": {
+      "a": {
+        "type": "number"
+      },
+      "b": {
+        "type": "number"
+      }
+    },
+    "returns": {
+      "type": "number"
+    }
+  },
+  {
+    "name": "fn_divide_numbers",
+    "description": "Divide the first number by the second and return the quotient.",
+    "parameters": {
+      "a": {
+        "type": "number"
+      },
+      "b": {
+        "type": "number"
+      }
+    },
+    "returns": {
+      "type": "number"
+    }
+  },
+  {
+    "name": "fn_upper_string",
+    "description": "Convert a string to upper case.",
+    "parameters": {
+      "s": {
+        "type": "string"
+      }
+    },
+    "returns": {
+      "type": "string"
+    }
+  },
+  {
+    "name": "fn_lower_string",
+    "description": "Convert a string to lower case.",
+    "parameters": {
+      "s": {
+        "type": "string"
+      }
+    },
+    "returns": {
+      "type": "string"
+    }
+  },
+  {
+    "name": "fn_trim_string",
+    "description": "Remove the whitespace at the start and end of a string.",
+    "parameters": {
+      "s": {
+        "type": "string"
+      }
+    },
+    "returns": {
+      "type": "string"
+    }
+  },
+  {
+    "name": "fn_repeat_text",
+    "description": "Repeat a piece of text a whole number of times.",
+    "parameters": {
+      "text": {
+        "type": "string"
+      },
+      "times": {
+        "type": "integer"
+      }
+    },
+    "returns": {
+      "type": "string"
+    }
+  },
+  {
+    "name": "fn_pick_colour",
+    "description": "Pick a colour from a list of colour names.",
+    "parameters": {
+      "colours": {
+        "type": "array"
+      }
+    },
+    "returns": {
+      "type": "string"
+    }
+  }
+]
