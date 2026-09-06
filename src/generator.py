@@ -67,6 +67,8 @@ def generate_value(
     if param_type == "number":
         return generate_number_value(context, prompt_ids)
     if param_type == "boolean":
+        # Only two spellings are legal, so instead of masking we score
+        # both and keep the one the model likes better.
         candidates = {"true": context.encode("true"),
                       "false": context.encode("false")}
         choice = choose_from_candidates(context, prompt_ids, candidates)
@@ -87,8 +89,10 @@ def generate_result_for_prompt(
         if index > 0:
             text += ", "
         text += f'"{param_name}": '
-        # A string value is generated with its opening quote already in
-        # the context, so the model can see it is inside a string.
+        # Any type that is not a number or a boolean is decoded as a
+        # string, exactly as generate_value does it. A string is given
+        # its opening quote up front so the model can see it is inside
+        # one before it writes the first character.
         opening_quote = "" if param.type in ("number", "boolean") else '"'
 
         # The running text is re-encoded every time instead of splicing

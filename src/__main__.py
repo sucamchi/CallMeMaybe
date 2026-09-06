@@ -32,6 +32,9 @@ def run() -> None:
     print(f"Loaded {len(prompts)} prompts")
 
     print("Loading the model")
+    # Imported here rather than at the top of the file: pulling in the
+    # SDK drags in torch and takes seconds, and there is no reason to
+    # pay that before knowing the input files are readable.
     from llm_sdk import Small_LLM_Model
     model = Small_LLM_Model()
 
@@ -52,7 +55,7 @@ def run() -> None:
 
 
 def main() -> None:
-    """Handle exceptions and exits if failure."""
+    """Run the pipeline, turning any error into a one-line exit."""
     try:
         run()
     except Exception as exc:

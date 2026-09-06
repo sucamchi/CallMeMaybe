@@ -40,7 +40,7 @@ def load_function_definitions(path: str) -> list[FunctionDef]:
 
 
 def load_prompts(path: str) -> list[Prompt]:
-    """Load the prompts; malformed entries are skipped with a warning."""
+    """Load the prompts, skipping malformed entries with a warning."""
     prompts = []
     for index, entry in enumerate(read_json_array(path)):
         try:
@@ -54,6 +54,8 @@ def load_prompts(path: str) -> list[Prompt]:
 
 def write_results(path: str, results: list[OutputResult]) -> None:
     """Write the results as one JSON array to output."""
+    # dirname is "" for a bare filename like "out.json", and makedirs
+    # cannot create "", so fall back to the current directory.
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     payload = [result.model_dump() for result in results]
     with open(path, "w", encoding="utf-8") as file:
