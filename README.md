@@ -25,7 +25,7 @@ It runs a small local model (Qwen3-0.6B) through `llm_sdk`. Asked
 politely for JSON, a model that size returns something parseable maybe
 a third of the time. This tool returns valid, schema-correct JSON
 **100% of the time**, because validity never depends on the model
-behaving — it is enforced while the text is being generated. That
+behaving. It is enforced while the text is being generated. That
 technique is called **constrained decoding**.
 
 
@@ -33,7 +33,7 @@ technique is called **constrained decoding**.
 
 ### 1. Models read tokens, not letters
 
-Text is chopped into **tokens** — usually word fragments — and each one
+Text is chopped into **tokens**, usually word fragments, and each one
 is looked up as an integer id. Here is the real tokenization of the
 sample prompt, straight out of `model.encode()`:
 
@@ -46,7 +46,7 @@ sample prompt, straight out of `model.encode()`:
 ### 2. The model outputs logits, one per possible token
 
 Hand the model a list of ids and it returns one **logit** per token in
-its vocabulary — 151,936 numbers for Qwen3-0.6B. A logit is an
+its vocabulary: 151,936 numbers for Qwen3-0.6B. A logit is an
 unnormalised score: higher means "more likely to come next".
 So the next token is chosen by taking the `argmax` of that vector:
 
@@ -74,7 +74,7 @@ logits = numpy.where(mask, logits, -numpy.inf)  # mask = tokens we allow
 next_id = int(numpy.argmax(logits))             # can only be an allowed one
 ```
 
-A `-inf` token can never win an `argmax`. The model still decides — but
+A `-inf` token can never win an `argmax`. The model still decides, but
 only among the options that were permitted. If a number is being
 generated and only number-shaped tokens are allowed, the next character
 *cannot* be anything else.
@@ -83,7 +83,7 @@ That is how reliability jumps to 100%.
 
 ### 5. `vocab.json` does not contain plain text
 
-To mask tokens you must know what each id *says* — you need an
+To mask tokens you must know what each id *says*, so you need an
 `{id: text}` map. `get_path_to_vocab_file()` hands you a `vocab.json`
 that looks like a `{text: id}` map.
 
@@ -114,7 +114,7 @@ In the following example:
 ```
 
 The braces, the `"name"` key, the colons, the commas, the argument
-names, the closing braces — once the shape is known, every one of them
+names, the closing braces: once the shape is known, every one of them
 is forced. There is no decision to make, so there is no reason to ask
 the model and nothing to mask. They are written directly as plain text
 (the *skeleton*). Only two things are real decisions (the *slots*):
@@ -128,8 +128,8 @@ Every name in the catalog is encoded to its token ids. For each
 candidate, its own tokens are scored one at a time under the shared
 prompt context, and the best-scoring name wins. Because only a
 candidate's own tokens are ever read, a name that was not offered can
-never come out — the same effect as masking every other token to
-`-inf`, without ever building the mask.
+never come out. That is the same effect as masking every other token
+to `-inf`, without ever building the mask.
 
 Two details matter:
 
@@ -150,17 +150,17 @@ one token at a time, with real logit masking.
 - **The masks are precomputed once** at startup from the decoded
   vocabulary (`build_char_class_mask`); rebuilding a 151,936-entry
   array per token would dominate the runtime. For Qwen3-0.6B:
-  - `number_mask` — the **84** tokens made only of `0-9 . e E + -`
-  - `string_mask` — the **146,899** tokens with no `"`, no `\` and no
+  - `number_mask`: the **84** tokens made only of `0-9 . e E + -`
+  - `string_mask`: the **146,899** tokens with no `"`, no `\` and no
     control character, so nothing generated ever needs escaping
 - **Character class alone is not enough for numbers.** `1`, `.` and `2`
-  are all number characters, but `1.2.` is not a number — and neither
+  are all number characters, but `1.2.` is not a number, and neither
   are `007`, `12.` or `1e`. So each candidate token is also tested with
   `is_number_prefix_valid(text_so_far + token_text)`, a small state
   machine over the JSON number grammar. Only 84 tokens are in the mask,
   so this recheck is cheap.
-- **Stopping rule.** Nothing inside the allowed set ever means "done" —
-  every digit token continues the number. So at each step the
+- **Stopping rule.** Nothing inside the allowed set ever means "done",
+  because every digit token continues the number. So at each step the
   *unmasked* argmax is computed as well. While the two agree,
   generation continues. The moment the model's free choice would rather
   say something outside the mask (a closing quote, a comma), that is
@@ -178,21 +178,13 @@ one token at a time, with real logit masking.
 [`src/generator.py`](src/generator.py) grows one string, asking the
 model only at the `?` marks:
 
-```
-<instructions, worked example, function catalog, user request>
-JSON:
-{"name": "?                                        <- slot 1
-{"name": "fn_add_numbers", "parameters": {"a": ?    <- slot 2 (number)
-{"name": "fn_add_numbers", "parameters": {"a": 2.0, "b": ?
-```
-
 Each finished value is written back into the text with `json.dumps()`,
 which re-adds the quotes around a string and turns a bool into
 `true`/`false`, so the running text stays valid JSON for the next
 decision to be conditioned on.
 
 The prompt itself (instructions plus one worked example using invented
-function names) only influences *which* valid answer comes out — it
+function names) only influences *which* valid answer comes out. It
 could never produce invalid output, because structure comes from the
 mask, not from asking nicely. It is not decoration, though: removing
 the worked example drops function selection on the sample set from
@@ -223,7 +215,7 @@ parse args -> load catalog -> load prompts -> load model -> build context (decod
   functions with local variables.
 - **Fatal vs. survivable failures, decided deliberately.** A broken
   catalog is fatal: nothing can be called, so the run stops with a
-  clear message. A broken *prompt* is not — it is skipped with a
+  clear message. A broken *prompt* is not: it is skipped with a
   warning and the rest still run, so the output array holds exactly one
   entry per accepted prompt. There is no per-prompt recovery path
   beyond that: generation cannot fail once a catalog has loaded, and a
@@ -238,8 +230,8 @@ parse args -> load catalog -> load prompts -> load model -> build context (decod
   those tokens out of `string_mask` entirely, so nothing that needs
   escaping can ever be produced, and no escaping pass is needed
   afterwards. The cost is real and worth naming at defence: a value
-  that genuinely wants a backslash — a regex like `\d+`, a Windows
-  path — is unreachable. Escaping on the way out would allow those,
+  that genuinely wants a backslash (a regex like `\d+`, a Windows
+  path) is unreachable. Escaping on the way out would allow those,
   but then a generated `"` could no longer be read as "the value is
   finished", which is exactly what the stopping rule relies on.
 - **Lazy `llm_sdk` import.** `run()` imports `Small_LLM_Model` after
@@ -248,7 +240,7 @@ parse args -> load catalog -> load prompts -> load model -> build context (decod
 
 
 ## Performance analysis
-Measured on the reference machine against the bundled sample files:
+
 5 functions, 11 prompts, 1-3 parameters each.
 
 | Stage | Cost |
@@ -256,8 +248,8 @@ Measured on the reference machine against the bundled sample files:
 | Model load | 2.6 s |
 | Startup: decode vocab + build both masks | 1.6 s (0.4 s of it decoding 151,643 entries) |
 | Whole pipeline, 11 prompts | 14.2 s |
-| Forward passes | 291 total, ~26 per prompt |
-| Time spent inside those passes | 11.4 s — 39 ms each, **80%** of the run |
+| Forward passes | 291 total|
+| Time spent inside those passes | 11.4 s, 39 ms each, **80%** of the run |
 
 The dominant cost is the number of `get_logits_from_input_ids` calls,
 one full forward pass each. The masking itself does not show up: it is
@@ -296,7 +288,7 @@ Two consequences worth stating plainly:
 - **A raw-logit scoring bug.** The first version of function selection
   summed each candidate's raw logits, which silently favours whichever
   name has more tokens; every prompt picked the longest name. The fix
-  was length-normalised log-probabilities — the standard way to compare
+  was length-normalised log-probabilities, the standard way to compare
   sequences of different lengths.
 - **Validating without the real model.** Downloading and running a 0.6B
   model for every check is slow and non-deterministic. A stand-in
@@ -324,21 +316,21 @@ catalog, missing fields, and missing files.
 
 **`make test` runs them.** There is no test framework and no test
 code: the target invokes the same CLI a reviewer would. It is one
-generation run — `functions_all.json` (17 functions) against
-`prompts_all.json` (40 prompts) — so the model is loaded exactly once,
+generation run, `functions_all.json` (17 functions) against
+`prompts_all.json` (40 prompts), so the model is loaded exactly once,
 followed by eight malformed-input cases inverted with a shell `!`.
 Those pass by failing, and they are nearly free: a bad input file is
 reported before `llm_sdk` is ever imported. Make stops at the first
 case that misbehaves. The whole target takes about three minutes and
 writes to the same `data/output/function_calling_results.json` as
-`make run` — no separate output files.
+`make run`, with no separate output files.
 
 What this checks is the program's real behaviour end to end: that a
 catalog of unfamiliar shapes still produces one valid entry per prompt,
 and that a malformed file produces a readable error and a non-zero exit
 instead of a traceback. Both merged files are themselves entirely
-valid — they load with no warning — so anything printed during that
-first run is a real problem, not expected noise. What it deliberately
+valid and load with no warning, so anything printed during that first
+run is a real problem, not expected noise. What it deliberately
 does not do is assert which function the model picks: that is the
 model's judgement, it is reviewed by reading the output, and pinning it
 down in an assertion would only encode today's answers.
@@ -372,18 +364,18 @@ containing `"What is the sum of 2 and 3?"`,
 ]
 ```
 
-# Instructions
+## Instructions
 
 Requires Python 3.10+ and uv.
 
 ```bash
 make install # installs everything, including llm_sdk and its dependencies
-make run     # runs the CLI against the default `data/input/` files.
-make debug   # runs it under pdb.
-make clean   # removes caches.
+make run     # runs the CLI against the default `data/input/` files
+make debug   # runs it under pdb
+make clean   # removes caches
 ```
 
-# Bonus
+## Bonus
 
 
 ## Resources
@@ -393,7 +385,6 @@ make clean   # removes caches.
 - [uv documentation](https://docs.astral.sh/uv/)
 - [Function calling internals: Grammar and Constrained Sampling](https://www.salmanq.com/blog/llm-constrained-sampling/)
 - [Controlling your LLM: Deep dive into Constrained Generation](https://medium.com/@docherty/controlling-your-llm-deep-dive-into-constrained-generation-1e561c736a20)
-- [Constrained Decoding: A Primer](https://arxiv.org/abs/2305.10101)
 - [Logits and next-token prediction](https://mikexcohen.substack.com/p/llm-breakdown-26-logits-and-next)
 - [Constrained Decoding](https://mbrenndoerfer.com/writing/constrained-decoding-structured-llm-output)
 
