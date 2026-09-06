@@ -7,13 +7,12 @@ to, we must reverse that byte-to-unicode substitution ourselves.
 """
 
 import json
-from pathlib import Path
 
 
 def byte_to_unicode() -> dict[int, str]:
     """Build the standard GPT2 byte -> printable character mapping.
 
-    Bytes that are already printable ASCII/Latin-1 characters
+    Bytes that are already printable ASCII characters
     map to themselves. Every other byte (control characters, the
     space byte, etc.) gets assigned an unused printable character
     further up the unicode range.
@@ -37,8 +36,8 @@ def byte_to_unicode() -> dict[int, str]:
 def build_vocabulary(vocab_file_path: str) -> dict[int, str]:
     """Load a vocab.json file and decode every token id to its text."""
     try:
-        raw_vocab = json.loads(
-            Path(vocab_file_path).read_text(encoding="utf-8"))
+        with open(vocab_file_path, encoding="utf-8") as file:
+            raw_vocab = json.load(file)
     except OSError as exc:
         raise ValueError(
             f"could not read vocab file {vocab_file_path}: {exc}") from exc

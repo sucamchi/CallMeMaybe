@@ -1,23 +1,21 @@
-"""Entry point: `python -m src [--functions_definition ...] [--input ...]
-[--output ...]`."""
+"""Parse CLI, load input files, run the LLM, and write output file."""
 
 import argparse
 import sys
-from pathlib import Path
 
 from src import constraints, generator, io_utils
 
-FUNCDEF = Path("data/input/functions_definition.json")
-INPUT = Path("data/input/function_calling_tests.json")
-OUTPUT = Path("data/output/function_calling_results.json")
+FUNCDEF = "data/input/functions_definition.json"
+INPUT = "data/input/function_calling_tests.json"
+OUTPUT = "data/output/function_calling_results.json"
 
 
 def parse_args() -> argparse.Namespace:
     """Parse the three file-path flags, all optional."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--functions_definition", type=Path, default=FUNCDEF)
-    parser.add_argument("--input", type=Path, default=INPUT)
-    parser.add_argument("--output", type=Path, default=OUTPUT)
+    parser.add_argument("--functions_definition", default=FUNCDEF)
+    parser.add_argument("--input", default=INPUT)
+    parser.add_argument("--output", default=OUTPUT)
     return parser.parse_args()
 
 

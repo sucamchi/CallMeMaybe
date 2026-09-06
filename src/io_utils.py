@@ -1,18 +1,19 @@
 """Load the two input JSON files and write the output JSON file."""
 
 import json
+import os
 import sys
-from pathlib import Path
 
 from pydantic import ValidationError
 
 from src.models import FunctionDef, Prompt, OutputResult
 
 
-def read_json_array(path: Path) -> list[object]:
+def read_json_array(path: str) -> list[object]:
     """Read a file and parse it as a JSON array."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        with open(path, encoding="utf-8") as file:
+            data = json.load(file)
     except OSError as exc:
         raise ValueError(f"could not read {path}: {exc}") from exc
     except json.JSONDecodeError as exc:
@@ -23,7 +24,7 @@ def read_json_array(path: Path) -> list[object]:
     return data
 
 
-def load_function_definitions(path: Path) -> list[FunctionDef]:
+def load_function_definitions(path: str) -> list[FunctionDef]:
     """Load the function catalog with error handling."""
     functions = []
     for entry in read_json_array(path):
@@ -38,7 +39,7 @@ def load_function_definitions(path: Path) -> list[FunctionDef]:
     return functions
 
 
-def load_prompts(path: Path) -> list[Prompt]:
+def load_prompts(path: str) -> list[Prompt]:
     """Load the prompts; malformed entries are skipped with a warning."""
     prompts = []
     for index, entry in enumerate(read_json_array(path)):
@@ -51,8 +52,9 @@ def load_prompts(path: Path) -> list[Prompt]:
     return prompts
 
 
-def write_results(path: Path, results: list[OutputResult]) -> None:
+def write_results(path: str, results: list[OutputResult]) -> None:
     """Write the results as one JSON array to output."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     payload = [result.model_dump() for result in results]
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(payload, file, indent=2, ensure_ascii=False)
