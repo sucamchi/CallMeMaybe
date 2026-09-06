@@ -11,11 +11,8 @@ each argument's value -- both go through constrained decoding.
 import json
 
 from src.constraints import (
-    GenerationContext,
-    choose_from_candidates,
-    generate_number_value,
-    generate_string_value,
-)
+    GenerationContext, choose_from_candidates,
+    generate_number_value, generate_string_value)
 from src.models import FunctionDef, OutputResult
 
 
@@ -54,7 +51,7 @@ def build_prompt_text(functions: list[FunctionDef], prompt: str) -> str:
     return "\n".join(lines)
 
 
-def _choose_function(
+def choose_function(
         context: GenerationContext, prompt_ids: list[int],
         functions: list[FunctionDef]) -> FunctionDef:
     """Let the model score every name in the catalog and take the best."""
@@ -63,7 +60,7 @@ def _choose_function(
     return by_name[choose_from_candidates(context, prompt_ids, candidates)]
 
 
-def _generate_value(
+def generate_value(
         context: GenerationContext, prompt_ids: list[int],
         param_type: str) -> float | str | bool:
     """Fill one argument slot, decoded as its declared type."""
@@ -82,7 +79,7 @@ def generate_result_for_prompt(
         prompt: str) -> OutputResult:
     """Run the full skeleton-plus-slot generation for one prompt."""
     text = build_prompt_text(functions, prompt) + '{"name": "'
-    function = _choose_function(context, context.encode(text), functions)
+    function = choose_function(context, context.encode(text), functions)
     text += function.name + '", "parameters": {'
 
     parameters: dict[str, float | str | bool] = {}
@@ -99,7 +96,7 @@ def generate_result_for_prompt(
         # precedes them, so splicing can build a sequence the model has
         # never seen.
         prompt_ids = context.encode(text + opening_quote)
-        value = _generate_value(context, prompt_ids, param.type)
+        value = generate_value(context, prompt_ids, param.type)
         parameters[param_name] = value
         # Writing the value back as JSON re-adds the quotes around a
         # string and turns a bool into true/false.
