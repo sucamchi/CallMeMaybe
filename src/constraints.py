@@ -1,6 +1,5 @@
 """Constrained decoding: at each step, mask out any token that would break
-JSON validity or the expected value type, and only pick from what remains.
-"""
+JSON validity or the expected value type, and only pick from what remains."""
 
 import json
 from typing import Any, Callable
@@ -95,6 +94,10 @@ def build_char_class_mask(
 class GenerationContext(BaseModel):
     """The model plus everything precomputed from it, built once per run."""
 
+    # Pydantic builds a validator per field when the class is defined,
+    # and it has no rules for a numpy array, so without this setting the
+    # class statement itself raises. It falls back to a plain isinstance
+    # check for the two masks. The other fields validate as usual.
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     model: Any

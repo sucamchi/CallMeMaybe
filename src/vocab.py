@@ -35,7 +35,7 @@ def build_vocabulary(vocab_file_path: str) -> dict[int, str]:
     """Load a vocab.json file and decode every token id to its text."""
     try:
         with open(vocab_file_path, encoding="utf-8") as file:
-            raw_vocab = json.load(file)
+            vocab = json.load(file)
     except OSError as exc:
         raise ValueError(
             f"could not read vocab file {vocab_file_path}: {exc}") from exc
@@ -46,7 +46,7 @@ def build_vocabulary(vocab_file_path: str) -> dict[int, str]:
     char_to_byte = {char: byte
                     for byte, char in byte_to_unicode().items()}
     id_to_text: dict[int, str] = {}
-    for token_string, token_id in raw_vocab.items():
+    for token_string, token_id in vocab.items():
         try:
             raw_bytes = bytes(char_to_byte[char] for char in token_string)
         except KeyError:
