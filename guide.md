@@ -369,18 +369,3 @@ used AI and for what.
 - **`data/output/` must not be committed.** The subject says so
   explicitly; put it in `.gitignore`.
 - **Do not commit a virtualenv.** The reviewer runs `uv sync`.
-
----
-
-## 10. Bonus, if the mandatory part is genuinely finished
-
-From the subject: support for models beyond Qwen3-0.6B; writing your
-own tokenizer so the main code never calls `encode`/`decode` and works
-purely from `get_logits_from_input_ids` and `get_path_to_vocab_file`;
-better error recovery; caching or batching; a comprehensive test suite;
-visualising the generation process; nested argument structures.
-
-The tokenizer one is the most interesting and the most work — it means
-implementing BPE merges yourself from `merges.txt`. Bonuses must
-actually run; describing them in the README earns nothing, and you may
-be asked to demonstrate them.
