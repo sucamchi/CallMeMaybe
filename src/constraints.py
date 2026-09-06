@@ -201,15 +201,23 @@ def choose_from_candidates(
     """
     best_name = ""
     best_score = float("-inf")
+    # Candidates share prefixes: every function name starts with the
+    # same "fn_" token, and every candidate's first step sees the same
+    # context. So each logits row is computed once and reused, keyed by
+    # the tokens consumed so far (the prompt is fixed for the call).
+    logits_by_prefix: dict[tuple[int, ...], np.ndarray] = {}
 
     for name, token_ids in candidates.items():
         if not token_ids:
             continue  # a name that encodes to nothing has no score
         total_log_prob = 0.0
         running_ids = list(prompt_ids)
-        for token_id in token_ids:
-            total_log_prob += _log_softmax_at(context.logits(running_ids),
-                                              token_id)
+        for position, token_id in enumerate(token_ids):
+            prefix = tuple(token_ids[:position])
+            if prefix not in logits_by_prefix:
+                logits_by_prefix[prefix] = context.logits(running_ids)
+            total_log_prob += _log_softmax_at(
+                logits_by_prefix[prefix], token_id)
             running_ids.append(token_id)
         average_log_prob = total_log_prob / len(token_ids)
         if average_log_prob > best_score:
