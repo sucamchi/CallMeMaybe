@@ -156,11 +156,23 @@ JSON string. So GPT-2-style tokenizers substitute every byte for some
 printable Unicode character before writing the file. A space becomes
 `Ġ`. A newline becomes `Ċ`. Byte `0x00` becomes something else again.
 
-So `vocab.json` maps *byte-substituted placeholder strings* to ids. To
-recover real text you must rebuild that byte-to-character table and
-reverse it. The table is a fixed, known thing — the standard reference
-is the `bytes_to_unicode` function in OpenAI's GPT-2 `encoder.py`.
-Reimplement it; it is about ten lines.
+So `vocab.json` maps *byte-substituted placeholder strings* to ids.
+Recovering real text means reversing that byte-to-character table. The
+table is a fixed, known thing — the standard reference is the
+`bytes_to_unicode` function in OpenAI's GPT-2 `encoder.py` — and
+reimplementing it is about ten lines.
+
+The shorter route is to not reimplement it at all: `decode([id])`
+already reverses the substitution, because it goes through the very
+tokenizer that wrote the file. Read the *ids* from `vocab.json` and ask
+`decode()` what each one says. Checked over the whole vocabulary, the
+two routes agree on all 151,643 entries.
+
+Read the ids from the file rather than counting up to the width of a
+logits row, though. That row is wider than the vocabulary (151,936 vs
+151,643 for Qwen3-0.6B), and the ids in between are special tokens —
+`decode()` returns the literal text of over half of them (`<think>`,
+`<tool_call>`), which would then sail through a character-class mask.
 
 Get this wrong and every mask you build is subtly wrong, in a way that
 looks like "the model is just bad". Test it on its own, early.

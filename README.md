@@ -17,19 +17,18 @@ it does not answer "5". Instead, it answers:
  "parameters": {"a": 2.0, "b": 3.0}}
 ```
 
-That is all function calling is: the program works out *which* tool
-would answer the question and *what arguments* to hand it. It never
-adds anything.
+The program works out *which* tool would answer the question and *what arguments* to hand it. 
+It never adds anything.
 
 It runs a small local model (Qwen3-0.6B) through `llm_sdk`. Asked
-politely for JSON, a model that size returns something parseable maybe
-a third of the time. This tool returns valid, schema-correct JSON
+politely for JSON, the model returns something parseable maybe
+33% of the time. This tool returns valid, schema-correct JSON
 **100% of the time**, because validity never depends on the model
 behaving. It is enforced while the text is being generated. That
 technique is called **constrained decoding**.
 
 
-## How it works, from scratch
+## How it works
 
 ### 1. Models read tokens, not letters
 
@@ -98,9 +97,16 @@ vocab.json:  "Ġsum" -> 2629      after decoding:  2629 -> " sum"
 vocab.json:  "Ċ"    -> 198       after decoding:  198  -> "\n"
 ```
 
-[`src/vocab.py`](src/vocab.py) rebuilds that byte-to-unicode table (the
-standard one from OpenAI's GPT-2 `encoder.py`) and reverses it, turning
-151,643 vocabulary entries into a real `dict[int, str]`.
+`build_vocabulary` in [`src/utils.py`](src/utils.py) reads the ids
+(the *values*, since the file is a `{text: id}` map) out of it and asks
+the SDK's `decode()` what each one says, turning 151,643 vocabulary
+entries into a real `dict[int, str]`. The substitution table is not
+rebuilt here: the tokenizer behind `decode()` already reverses it, and
+reimplementing it would only be a second copy to keep correct.
+
+Only the ids the file names are decoded. The special tokens appended
+after it (`<|im_start|>`, `<think>`, `<tool_call>`) are deliberately
+left out, so no mask can ever allow one.
 
 
 ## Algorithm explanation
@@ -206,7 +212,7 @@ parse args -> load catalog -> load prompts -> load model -> build context (decod
   `GenerationContext` (a pydantic model) holds the model, the decoded
   vocabulary and both masks. So
   the decoding functions take `(context, prompt_ids)` and nothing else,
-  and its three small methods (`encode`, `logits`, `text_of`) keep the
+  and its three small methods (`encode`, `logits`, `decode`) keep the
   SDK's tensor handling in exactly one place.
 - **Functions over classes everywhere else.** Only things holding real
   data are pydantic models, as required: `FunctionDef`, `FunctionParam`,
@@ -274,12 +280,21 @@ Two consequences worth stating plainly:
 
 ## Challenges faced
 - **Decoding `vocab.json` correctly.** The file maps ids to
-  byte-substituted placeholder strings, not to text. Getting a usable
-  `id -> text` map meant reimplementing the standard GPT2
-  byte-to-unicode table and reversing it. This is the one genuinely
-  fiddly piece in the project and the one everything depends on: every
-  mask is built from that map, so a mistake here surfaces as "the model
-  is bad", not as an obvious error.
+  byte-substituted placeholder strings, not to text, and every mask is
+  built from that map, so a mistake here surfaces as "the model is
+  bad" rather than as an obvious error. The first version rebuilt the
+  standard GPT2 byte-to-unicode table by hand and reversed it. It is
+  now the SDK's `decode()` that does this, which is the same table
+  reached through the tokenizer that wrote the file instead of a second
+  copy of it maintained here. Checked against the hand-rolled version:
+  identical text for all 151,643 entries.
+- **Knowing where the vocabulary stops.** The ids in `vocab.json` run
+  to 151,642, the logits row is 151,936 wide, and the 26 ids in between
+  are special tokens. 14 of those 26 are not marked "special" in the
+  tokenizer, so `decode()` returns their literal text (`<tool_call>`,
+  `<think>`) rather than `""`, and any of those would pass the string
+  mask's character test. Driving the map from the file's ids, not from
+  the width of a logits row, is what keeps them out.
 - **Deciding when a value is "done".** JSON has no "end of number"
   token, and by construction every allowed token continues the value.
   Comparing the model's free (unmasked) choice against the masked one
@@ -344,10 +359,6 @@ argument values are actually right. Every change also has to leave
 ## Example usage
 ```
 uv sync
-uv run python -m src \
-  --functions_definition data/input/functions_definition.json \
-  --input data/input/function_calling_tests.json \
-  --output data/output/function_calling_results.json
 ```
 
 Or simply `make run` for the default paths. Given a prompt file

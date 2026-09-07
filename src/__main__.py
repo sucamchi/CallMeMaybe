@@ -3,7 +3,7 @@
 import argparse
 import sys
 
-from src import constraints, generator, io_utils
+from src import constraints, generator, utils
 
 FUNCDEF = "data/input/functions_definition.json"
 INPUT = "data/input/function_calling_tests.json"
@@ -19,16 +19,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run() -> None:
+def main() -> None:
     """Run the whole pipeline, from input files to output file."""
     args = parse_args()
 
     print(f"Loading functions from {args.functions_definition}")
-    functions = io_utils.load_function_definitions(args.functions_definition)
+    functions = utils.load_function_definitions(args.functions_definition)
     print(f"Loaded {len(functions)} functions")
 
     print(f"Loading prompts from {args.input}")
-    prompts = io_utils.load_prompts(args.input)
+    prompts = utils.load_prompts(args.input)
     print(f"Loaded {len(prompts)} prompts")
 
     print("Loading the model")
@@ -47,17 +47,12 @@ def run() -> None:
         print(f"{result.name}({result.parameters})")
         results.append(result)
 
-    io_utils.write_results(args.output, results)
+    utils.write_results(args.output, results)
     print(f"Done. Results written to {args.output}")
 
 
-def main() -> None:
-    """Run the pipeline, turning any error into a one-line exit."""
-    try:
-        run()
-    except Exception as exc:
-        sys.exit(f"Error: {exc}")
-
-
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        sys.exit(f"Error: {e}")

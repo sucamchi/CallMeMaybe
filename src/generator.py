@@ -17,13 +17,7 @@ from src.models import FunctionDef, OutputResult
 
 
 def build_prompt_text(functions: list[FunctionDef], prompt: str) -> str:
-    """Render the instructions, an example, the catalog, and the request.
-
-    The example is what makes function selection work: without it the
-    model picks the function with the most arguments instead of the one
-    the description matches, and accuracy drops from 11/11 to 7/11.
-    Its function names never appear in a real catalog.
-    """
+    """Build the text that will be fed to the model for one prompt."""
     lines = [
         "You translate a user request into exactly one function call.",
         "Pick the single function whose description best matches what",
@@ -67,8 +61,6 @@ def generate_value(
     if param_type == "number":
         return generate_number_value(context, prompt_ids)
     if param_type == "boolean":
-        # Only two spellings are legal, so instead of masking we score
-        # both and keep the one the model likes better.
         candidates = {"true": context.encode("true"),
                       "false": context.encode("false")}
         choice = choose_from_candidates(context, prompt_ids, candidates)

@@ -1,8 +1,9 @@
-"""Load the two input JSON files and write the output JSON file."""
+"""Read/write JSON files and build a vocabulary from the model's vocab.json."""
 
 import json
 import os
 import sys
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -54,9 +55,26 @@ def load_prompts(path: str) -> list[Prompt]:
 
 def write_results(path: str, results: list[OutputResult]) -> None:
     """Write the results as one JSON array to output."""
-    # dirname is "" for a bare filename like "out.json", and makedirs
-    # cannot create "", so fall back to the current directory.
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     payload = [result.model_dump() for result in results]
     with open(path, "w", encoding="utf-8") as file:
         json.dump(payload, file, indent=2, ensure_ascii=False)
+
+
+def build_vocabulary(model: Any) -> dict[int, str]:
+    """Map every id in the model's vocab.json to the text it decodes to."""
+    vocab_file_path = model.get_path_to_vocab_file()
+    try:
+        with open(vocab_file_path, encoding="utf-8") as file:
+            vocab = json.load(file)
+    except OSError as exc:
+        raise ValueError(
+            f"could not read vocab file {vocab_file_path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"invalid vocab file {vocab_file_path}: {exc}") from exc
+
+    # The file is a {text: id} map, so the ids are its values. Its keys
+    # are byte-substituted placeholders, not text a token really says,
+    # which is why the text comes back from decode() instead.
+    return {int(id): str(model.decode([int(id)])) for id in vocab.values()}
