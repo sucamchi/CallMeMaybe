@@ -2,7 +2,6 @@
 
 import argparse
 import sys
-
 from src import constraints, generator, utils
 
 FUNCDEF = "data/input/functions_definition.json"
@@ -35,7 +34,7 @@ def main() -> None:
     from llm_sdk import Small_LLM_Model
     model = Small_LLM_Model()
 
-    print("Building the vocabulary and decoding masks")
+    print("Building vocabulary and constraints")
     context = constraints.build_generation_context(model)
 
     print("Generating one function call per prompt")

@@ -4,9 +4,7 @@ import json
 import os
 import sys
 from typing import Any
-
 from pydantic import ValidationError
-
 from src.models import FunctionDef, Prompt, OutputResult
 
 
@@ -67,12 +65,8 @@ def build_vocabulary(model: Any) -> dict[int, str]:
     try:
         with open(vocab_file_path, encoding="utf-8") as file:
             vocab = json.load(file)
-    except OSError as exc:
-        raise ValueError(
-            f"could not read vocab file {vocab_file_path}: {exc}") from exc
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"invalid vocab file {vocab_file_path}: {exc}") from exc
+    except Exception:
+        raise ValueError(f"could not read {vocab_file_path}")
 
     # The file is a {text: id} map, so the ids are its values. Its keys
     # are byte-substituted placeholders, not text a token really says,

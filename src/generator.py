@@ -1,15 +1,7 @@
 """Builds the prompt, drives constrained decoding per prompt, and
-assembles the results.
-
-Generation follows a "skeleton + slot" approach: the fixed JSON
-punctuation (braces, keys, quotes, commas) is never a real decision,
-so it's written directly as plain text. Only two kinds of things are
-actual decisions handed to the model: which function to call, and
-each argument's value -- both go through constrained decoding.
-"""
+assembles the results."""
 
 import json
-
 from src.constraints import (
     GenerationContext, choose_from_candidates,
     generate_number_value, generate_string_value)

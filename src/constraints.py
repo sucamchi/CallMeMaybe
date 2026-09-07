@@ -3,10 +3,8 @@ JSON validity or the expected value type, and only pick from what remains."""
 
 import json
 from typing import Any, Callable
-
 import numpy as np
 from pydantic import BaseModel, ConfigDict
-
 from src.utils import build_vocabulary
 
 NUMBER_CHARS = set("0123456789.eE+-")
