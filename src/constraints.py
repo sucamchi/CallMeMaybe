@@ -7,7 +7,7 @@ from typing import Any, Callable
 import numpy as np
 from pydantic import BaseModel, ConfigDict
 
-from src.vocab import build_vocabulary
+from src.utils import build_vocabulary
 
 NUMBER_CHARS = set("0123456789.eE+-")
 MAX_NUMBER_TOKENS = 20
@@ -120,7 +120,7 @@ class GenerationContext(BaseModel):
 
 def build_generation_context(model: Any) -> GenerationContext:
     """Load the vocabulary and precompute the masks, once per run."""
-    vocabulary = build_vocabulary(model.get_path_to_vocab_file())
+    vocabulary = build_vocabulary(model)
     # The mask has to line up with a logits row, and the model's output
     # layer can be wider than the vocab file, so ask the model itself.
     probe_ids = [int(token_id) for token_id in model.encode(" ")[0]]
@@ -135,8 +135,8 @@ def build_generation_context(model: Any) -> GenerationContext:
 
 
 def generate_masked_text(
-        context: GenerationContext, prompt_ids: list[int], mask: np.ndarray,
-        max_tokens: int,
+        context: GenerationContext, prompt_ids: list[int],
+        mask: np.ndarray, max_tokens: int,
         stays_valid: Callable[[str], bool] | None = None) -> str:
     """Generate text one token at a time, never leaving the mask.
 

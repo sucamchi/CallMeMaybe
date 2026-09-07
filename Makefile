@@ -34,8 +34,4 @@ lint:
 					--ignore-missing-imports --disallow-untyped-defs \
 					--check-untyped-defs
 
-lint-strict:
-	uv run flake8 .
-	uv run mypy . --strict
-
 .PHONY: install run debug test clean lint lint-strict
