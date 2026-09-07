@@ -12,7 +12,7 @@ MAX_NUMBER_TOKENS = 20
 MAX_STRING_TOKENS = 40
 
 
-def is_number_prefix_valid(text: str) -> bool:
+def is_number_prefix(text: str) -> bool:
     """True if text is a JSON number or could still grow into one.
 
     This runs on half-finished values, so "-" and "1." have to pass
@@ -59,21 +59,38 @@ def is_number_prefix_valid(text: str) -> bool:
     return index == len(text)
 
 
-def is_json_number(text: str) -> bool:
+def is_integer_prefix(text: str) -> bool:
+    """True if text is a whole number or could still grow into one.
+
+    Same job as is_number_prefix, minus the fraction and the exponent:
+    a parameter declared "integer" has to come out as 4, never as 4.0.
+    """
+    if text in ("", "-"):
+        return True
+    digits = text[1:] if text[0] == "-" else text
+    if not digits.isdigit():
+        return False
+    return len(digits) == 1 or digits[0] != "0"  # JSON forbids "01"
+
+
+def is_number_token(text: str) -> bool:
     """True if text uses only characters a JSON number can contain."""
     return all(char in NUMBER_CHARS for char in text)
 
 
-def is_string_safe_text(text: str) -> bool:
-    """True if text can sit inside a JSON string body.
+def is_string_token(text: str) -> bool:
+    """True if a token may be picked while a JSON string value is open.
 
-    Leaving the quote out of this class is what ends a string value:
-    generation stops as soon as the model wants a token the mask
-    forbids, and what it wants after a finished value is the closing
-    quote. Characters below 0x20 are illegal raw inside a JSON string,
-    and a backslash would open an escape the model may never close.
+    A token carrying the closing quote, like ')",', counts as allowed:
+    that is how the model says the value is finished, and only the part
+    before the quote is kept. Forbidding them instead would throw away
+    the characters sitting in front of the quote.
+
+    Characters below 0x20 are illegal raw inside a JSON string, so a
+    token holding one before its quote is never allowed.
     """
-    return all(char not in '"\\' and ord(char) >= 0x20 for char in text)
+    body = text.partition('"')[0]
+    return all(ord(char) >= 0x20 for char in body)
 
 
 def build_char_class_mask(
@@ -127,51 +144,47 @@ def build_generation_context(model: Any) -> GenerationContext:
         model=model,
         vocabulary=vocabulary,
         number_mask=build_char_class_mask(
-            vocabulary, vocab_size, is_json_number),
+            vocabulary, vocab_size, is_number_token),
         string_mask=build_char_class_mask(
-            vocabulary, vocab_size, is_string_safe_text))
+            vocabulary, vocab_size, is_string_token))
 
 
-def generate_masked_text(
+def generate_number_text(
         context: GenerationContext, prompt_ids: list[int],
-        mask: np.ndarray, max_tokens: int,
-        stays_valid: Callable[[str], bool] | None = None) -> str:
-    """Generate text one token at a time, never leaving the mask.
+        stays_valid: Callable[[str], bool]) -> str:
+    """Generate a numeric value one token at a time, as raw text.
 
-    Stopping rule: since only allowed tokens can be picked, nothing in
-    the allowed set ever means "done". So at every step we also look at
+    Stopping rule: every allowed token is part of the number, so nothing
+    in the allowed set ever means "done". At each step we also look at
     what the model would have picked with no mask at all. As soon as the
-    two disagree, the model would rather say something outside the value
-    (a closing quote, a comma), which is how it tells us it has
+    two disagree, the model would rather write something outside the
+    number (a comma, a closing brace), which is how it tells us it has
     finished.
     """
-    generated_ids: list[int] = []
+    token_ids = list(prompt_ids)
     text = ""
 
-    for _ in range(max_tokens):
-        logits = context.logits(prompt_ids + generated_ids)
+    for _ in range(MAX_NUMBER_TOKENS):
+        logits = context.logits(token_ids)
 
-        allowed = mask
-        if stays_valid is not None:
-            # Character class alone is not enough for numbers: "1", "."
-            # and "2" are all number characters, but "1.2." is not a
-            # number, so every candidate is re-checked against the text
-            # generated so far.
-            allowed = mask.copy()
-            for token_id in np.nonzero(allowed)[0]:
-                if not stays_valid(text + context.decode(int(token_id))):
-                    allowed[token_id] = False
+        # Character class alone is not enough: "1", "." and "2" are all
+        # number characters, but "1.2." is not a number, so every
+        # candidate is re-checked against the text generated so far.
+        allowed = context.number_mask.copy()
+        for token_id in np.nonzero(allowed)[0]:
+            if not stays_valid(text + context.decode(int(token_id))):
+                allowed[token_id] = False
         if not allowed.any():
             break
 
         # Forbidden tokens are dropped to -inf so that argmax can never
         # land on one, however well the model scored them.
-        constrained_choice = int(np.argmax(np.where(allowed, logits, -np.inf)))
-        if int(np.argmax(logits)) != constrained_choice:
+        choice = int(np.argmax(np.where(allowed, logits, -np.inf)))
+        if int(np.argmax(logits)) != choice:
             break
 
-        generated_ids.append(constrained_choice)
-        text += context.decode(constrained_choice)
+        token_ids.append(choice)
+        text += context.decode(choice)
 
     return text
 
@@ -179,72 +192,94 @@ def generate_masked_text(
 def generate_number_value(
         context: GenerationContext, prompt_ids: list[int]) -> float:
     """Generate a JSON number, falling back to 0.0 if none came out."""
-    text = generate_masked_text(
-        context, prompt_ids, context.number_mask, MAX_NUMBER_TOKENS,
-        is_number_prefix_valid)
     try:
-        return float(json.loads(text))
+        return float(
+            generate_number_text(context, prompt_ids, is_number_prefix))
     except ValueError:
         return 0.0
 
 
+def generate_integer_value(
+        context: GenerationContext, prompt_ids: list[int]) -> int:
+    """Generate a whole JSON number, falling back to 0 if none came out."""
+    try:
+        return int(
+            generate_number_text(context, prompt_ids, is_integer_prefix))
+    except ValueError:
+        return 0
+
+
+def unescape(body: str) -> str:
+    """Turn a raw string body into the text it stands for.
+
+    The model writes JSON escapes itself, so a Windows path arrives with
+    every backslash doubled the way JSON asks for. Reading the body back
+    with json is what collapses each pair into the one character the
+    value really holds. A half-written escape is not valid JSON, and
+    there the body is kept exactly as it came.
+    """
+    try:
+        return str(json.loads('"' + body + '"'))
+    except json.JSONDecodeError:
+        return body
+
+
 def generate_string_value(
         context: GenerationContext, prompt_ids: list[int]) -> str:
-    """Generate the body of a JSON string, quotes excluded."""
-    return generate_masked_text(
-        context, prompt_ids, context.string_mask, MAX_STRING_TOKENS)
+    """Generate the body of a JSON string, quotes excluded.
 
-
-def _log_softmax_at(logits: np.ndarray, token_id: int) -> float:
-    """Log-probability of one token id under the model's full distribution.
-
-    Softmax is exp(logit) / sum(exp(logits)). Subtracting the largest
-    logit before any exp() is the usual guard against exp() overflowing
-    on a big one: it cancels out of the division, so the answer is the
-    same, but nothing is ever raised above exp(0).
+    Generation ends when the model picks a token holding the closing
+    quote, so the model decides the length of the value itself.
     """
-    peak = np.max(logits)
-    log_sum_exp = peak + np.log(np.sum(np.exp(logits - peak)))
-    return float(logits[token_id] - log_sum_exp)
+    token_ids = list(prompt_ids)
+    body = ""
+
+    for _ in range(MAX_STRING_TOKENS):
+        logits = context.logits(token_ids)
+        choice = int(np.argmax(
+            np.where(context.string_mask, logits, -np.inf)))
+        text, closing_quote, _ = context.decode(choice).partition('"')
+        body += text
+        if closing_quote:
+            break
+        token_ids.append(choice)
+
+    return unescape(body)
 
 
 def choose_from_candidates(
         context: GenerationContext, prompt_ids: list[int],
         candidates: dict[str, list[int]]) -> str:
-    """Score each candidate's token sequence and return the best name.
+    """Walk the candidates' token sequences together and return the best.
 
-    Only a candidate's own tokens are ever read, so a name that was not
-    offered can never come out, the same effect as masking every other
-    token to -inf without ever building the mask.
+    Only a candidate's own tokens are ever offered to the model, so a
+    name that was not in the catalog can never come out: the same effect
+    as masking every other token to -inf, without ever building a mask.
 
-    Scores are log-probabilities rather than raw logits, summed and then
-    divided by the token count: raw logits are not comparable across
-    candidates of different lengths, and dividing by the length keeps a
-    long name from losing purely for being long.
+    Every step drops the candidates that disagree with the token just
+    picked. A step where the survivors all want the same token needs no
+    model call at all, which is most of what makes this cheap: every
+    function name in the catalog starts with the same "fn" token.
     """
-    best_name = ""
-    best_score = float("-inf")
-    # Candidates share prefixes: every function name starts with the
-    # same "fn_" token, and every candidate's first step sees the same
-    # context. So each logits row is computed once and reused, keyed by
-    # the tokens consumed so far (the prompt is fixed for the call).
-    logits_by_prefix: dict[tuple[int, ...], np.ndarray] = {}
+    names = [name for name, ids in candidates.items() if ids]
+    chosen: list[int] = []
 
-    for name, token_ids in candidates.items():
-        if not token_ids:
-            continue  # a name that encodes to nothing has no score
-        total_log_prob = 0.0
-        running_ids = list(prompt_ids)
-        for position, token_id in enumerate(token_ids):
-            prefix = tuple(token_ids[:position])
-            if prefix not in logits_by_prefix:
-                logits_by_prefix[prefix] = context.logits(running_ids)
-            total_log_prob += _log_softmax_at(
-                logits_by_prefix[prefix], token_id)
-            running_ids.append(token_id)
-        average_log_prob = total_log_prob / len(token_ids)
-        if average_log_prob > best_score:
-            best_score = average_log_prob
-            best_name = name
+    while len(names) > 1:
+        step = len(chosen)
+        # A survivor whose tokens are all matched is the answer already:
+        # the others only carry on past it, the way fn_read_file carries
+        # on past fn_read, and nothing is left to tell them apart on.
+        for name in names:
+            if len(candidates[name]) == step:
+                return name
 
-    return best_name
+        options = {candidates[name][step] for name in names}
+        if len(options) == 1:
+            chosen.append(options.pop())
+        else:
+            logits = context.logits(prompt_ids + chosen)
+            chosen.append(max(options, key=lambda token_id: logits[token_id]))
+        names = [name for name in names
+                 if candidates[name][:len(chosen)] == chosen]
+
+    return names[0] if names else ""

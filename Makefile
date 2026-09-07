@@ -21,6 +21,7 @@ test:
 		$(TESTS)/broken_functions_missing_description.json
 	! $(RUN) --input $(TESTS)/broken_prompts_invalid_json.json
 	! $(RUN) --input $(TESTS)/broken_prompts_not_array.json
+	! $(RUN) --input $(TESTS)/broken_prompts_empty_array.json
 	! $(RUN) --functions_definition $(TESTS)/does_not_exist.json
 	! $(RUN) --input $(TESTS)/does_not_exist.json
 
@@ -30,8 +31,8 @@ clean:
 
 lint:
 	uv run flake8 .
-	uv run mypy . 	--warn-return-any --warn-unused-ignores \
+	uv run mypy . --warn-return-any --warn-unused-ignores \
 					--ignore-missing-imports --disallow-untyped-defs \
 					--check-untyped-defs
 
-.PHONY: install run debug test clean lint lint-strict
+.PHONY: install run debug test clean lint

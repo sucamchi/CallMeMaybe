@@ -2,14 +2,15 @@
 
 import json
 import os
-import sys
-from typing import Any
-from pydantic import ValidationError
-from src.models import FunctionDef, Prompt, OutputResult
+from typing import Any, TypeVar
+from pydantic import BaseModel, ValidationError
+from src.models import OutputResult
+
+Model = TypeVar("Model", bound=BaseModel)
 
 
-def read_json_array(path: str) -> list[object]:
-    """Read a file and parse it as a JSON array."""
+def load_json_array(path: str, model: type[Model]) -> list[Model]:
+    """Read a JSON array from a file and validate each entry as model."""
     try:
         with open(path, encoding="utf-8") as file:
             data = json.load(file)
@@ -18,37 +19,13 @@ def read_json_array(path: str) -> list[object]:
     except json.JSONDecodeError as exc:
         raise ValueError(f"invalid JSON in {path}: {exc}") from exc
 
-    if not isinstance(data, list):
-        raise ValueError(f"{path} must contain a JSON array")
-    return data
+    if not isinstance(data, list) or not data:
+        raise ValueError(f"{path} must contain a non-empty JSON array")
 
-
-def load_function_definitions(path: str) -> list[FunctionDef]:
-    """Load the function catalog with error handling."""
-    functions = []
-    for entry in read_json_array(path):
-        try:
-            functions.append(FunctionDef.model_validate(entry))
-        except ValidationError as exc:
-            raise ValueError(
-                f"invalid function definition in {path}: {exc}") from exc
-
-    if not functions:
-        raise ValueError(f"{path} contains no functions")
-    return functions
-
-
-def load_prompts(path: str) -> list[Prompt]:
-    """Load the prompts, skipping malformed entries with a warning."""
-    prompts = []
-    for index, entry in enumerate(read_json_array(path)):
-        try:
-            prompts.append(Prompt.model_validate(entry))
-        except ValidationError as exc:
-            print(
-                f"Warning: skipping invalid prompt entry {index} in {path}: "
-                f"{exc}", file=sys.stderr)
-    return prompts
+    try:
+        return [model.model_validate(entry) for entry in data]
+    except ValidationError as exc:
+        raise ValueError(f"invalid entry in {path}: {exc}") from exc
 
 
 def write_results(path: str, results: list[OutputResult]) -> None:

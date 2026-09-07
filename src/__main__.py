@@ -3,6 +3,7 @@
 import argparse
 import sys
 from src import constraints, generator, utils
+from src.models import FunctionDef, Prompt
 
 FUNCDEF = "data/input/functions_definition.json"
 INPUT = "data/input/function_calling_tests.json"
@@ -23,11 +24,11 @@ def main() -> None:
     args = parse_args()
 
     print(f"Loading functions from {args.functions_definition}")
-    functions = utils.load_function_definitions(args.functions_definition)
+    functions = utils.load_json_array(args.functions_definition, FunctionDef)
     print(f"Loaded {len(functions)} functions")
 
     print(f"Loading prompts from {args.input}")
-    prompts = utils.load_prompts(args.input)
+    prompts = utils.load_json_array(args.input, Prompt)
     print(f"Loaded {len(prompts)} prompts")
 
     print("Loading the model")

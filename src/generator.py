@@ -3,7 +3,7 @@ assembles the results."""
 
 import json
 from src.constraints import (
-    GenerationContext, choose_from_candidates,
+    GenerationContext, choose_from_candidates, generate_integer_value,
     generate_number_value, generate_string_value)
 from src.models import FunctionDef, OutputResult
 
@@ -11,20 +11,14 @@ from src.models import FunctionDef, OutputResult
 def build_prompt_text(functions: list[FunctionDef], prompt: str) -> str:
     """Build the text that will be fed to the model for one prompt."""
     lines = [
-        "You translate a user request into exactly one function call.",
-        "Pick the single function whose description best matches what",
-        "the user is asking for.",
+        "Translate the user request into exactly one function call.",
         "",
         "Example:",
-        "Available functions:",
-        "- get_weather(city: string): Get the current weather for a city.",
-        "- send_email(to: string, subject: string): Send an email.",
-        'User request: "What is the weather like in Paris?"',
-        "JSON:",
+        "- get_weather(city: string): Get the weather for a city.",
+        'Request: "What is the weather like in Paris?"',
         '{"name": "get_weather", "parameters": {"city": "Paris"}}',
         "",
-        "Now do the same for this request.",
-        "Available functions:",
+        "Functions:",
     ]
     for function in functions:
         params = ", ".join(
@@ -32,32 +26,42 @@ def build_prompt_text(functions: list[FunctionDef], prompt: str) -> str:
             for name, param in function.parameters.items()
         )
         lines.append(f"- {function.name}({params}): {function.description}")
-    lines.append(f'User request: "{prompt}"')
-    lines.append("JSON:")
-    return "\n".join(lines)
+    lines.append(f'Request: "{prompt}"')
+    return "\n".join(lines) + "\n"
 
 
 def choose_function(
         context: GenerationContext, prompt_ids: list[int],
         functions: list[FunctionDef]) -> FunctionDef:
-    """Let the model score every name in the catalog and take the best."""
+    """Let the model pick one name out of the catalog, and nothing else."""
     by_name = {function.name: function for function in functions}
     candidates = {name: context.encode(name) for name in by_name}
     return by_name[choose_from_candidates(context, prompt_ids, candidates)]
 
 
 def generate_value(
-        context: GenerationContext, prompt_ids: list[int],
-        param_type: str) -> float | str | bool:
-    """Fill one argument slot, decoded as its declared type."""
+        context: GenerationContext, text: str,
+        param_type: str) -> bool | int | float | str:
+    """Fill one argument slot, decoded as its declared type.
+
+    The running text is re-encoded here rather than spliced together
+    from token ids: BPE token boundaries shift with what precedes them,
+    so splicing can build a sequence the model has never seen.
+    """
     if param_type == "number":
-        return generate_number_value(context, prompt_ids)
+        return generate_number_value(context, context.encode(text))
+    if param_type == "integer":
+        return generate_integer_value(context, context.encode(text))
     if param_type == "boolean":
         candidates = {"true": context.encode("true"),
                       "false": context.encode("false")}
-        choice = choose_from_candidates(context, prompt_ids, candidates)
+        choice = choose_from_candidates(
+            context, context.encode(text), candidates)
         return choice == "true"
-    return generate_string_value(context, prompt_ids)
+    # Any other type is written as a string. Its opening quote goes in
+    # before generation so the model can see it is inside a string
+    # before it writes the first character.
+    return generate_string_value(context, context.encode(text + '"'))
 
 
 def generate_result_for_prompt(
@@ -68,26 +72,16 @@ def generate_result_for_prompt(
     function = choose_function(context, context.encode(text), functions)
     text += function.name + '", "parameters": {'
 
-    parameters: dict[str, float | str | bool] = {}
+    parameters: dict[str, bool | int | float | str] = {}
     for index, (param_name, param) in enumerate(function.parameters.items()):
         if index > 0:
             text += ", "
         text += f'"{param_name}": '
-        # Any type that is not a number or a boolean is decoded as a
-        # string, exactly as generate_value does it. A string is given
-        # its opening quote up front so the model can see it is inside
-        # one before it writes the first character.
-        opening_quote = "" if param.type in ("number", "boolean") else '"'
-
-        # The running text is re-encoded every time instead of splicing
-        # id fragments together: BPE token boundaries shift with what
-        # precedes them, so splicing can build a sequence the model has
-        # never seen.
-        prompt_ids = context.encode(text + opening_quote)
-        value = generate_value(context, prompt_ids, param.type)
+        value = generate_value(context, text, param.type)
         parameters[param_name] = value
         # Writing the value back as JSON re-adds the quotes around a
-        # string and turns a bool into true/false.
+        # string, escapes what is inside it, and turns a bool into
+        # true/false, so the model always reads back valid JSON.
         text += json.dumps(value, ensure_ascii=False)
 
     return OutputResult(

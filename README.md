@@ -130,53 +130,65 @@ the model and nothing to mask. They are written directly as plain text
 `choose_from_candidates()` in
 [`src/constraints.py`](src/constraints.py).
 
-Every name in the catalog is encoded to its token ids. For each
-candidate, its own tokens are scored one at a time under the shared
-prompt context, and the best-scoring name wins. Because only a
-candidate's own tokens are ever read, a name that was not offered can
-never come out. That is the same effect as masking every other token
-to `-inf`, without ever building the mask.
+Every name in the catalog is encoded to its token ids, and the walk
+goes through the candidates side by side, one position at a time. At
+each position the surviving candidates offer their next token, the
+model picks the best of exactly those, and every candidate that wanted
+a different one is dropped. Because only a candidate's own tokens are
+ever offered, a name that was not in the catalog can never come out.
+That is the same effect as masking every other token to `-inf`,
+without ever building the mask.
 
-Two details matter:
-
-- **Log-probabilities, not raw logits.** A logit only means something
-  relative to the other logits at that same step, so raw logits are not
-  comparable across candidates. Each token's score is converted with a
-  numerically stable log-softmax (`_log_softmax_at`).
-- **Divided by the token count.** Log-probabilities are negative, so
-  summing them punishes long names: a nine-token name would lose to a
-  four-token one every time, whatever the prompt asked for. Dividing by
-  the length puts every candidate on equal footing.
+A position where the survivors all want the same token is skipped
+without asking the model: there is nothing to decide. On a real
+catalog that is nearly all of the work, because every name starts with
+the same `fn` token and they diverge on the second one. Picking
+between the six private-set functions costs **one** forward pass.
 
 ### Slot 2: each argument's value
 
-`_generate_masked_text()` in [`src/constraints.py`](src/constraints.py),
-one token at a time, with real logit masking.
+`generate_number_text()` and `generate_string_value()` in
+[`src/constraints.py`](src/constraints.py), one token at a time, with
+real logit masking.
 
 - **The masks are precomputed once** at startup from the decoded
   vocabulary (`build_char_class_mask`); rebuilding a 151,936-entry
   array per token would dominate the runtime. For Qwen3-0.6B:
   - `number_mask`: the **84** tokens made only of `0-9 . e E + -`
-  - `string_mask`: the **146,899** tokens with no `"`, no `\` and no
-    control character, so nothing generated ever needs escaping
+  - `string_mask`: the **148,552** tokens that may appear while a
+    string value is open
 - **Character class alone is not enough for numbers.** `1`, `.` and `2`
   are all number characters, but `1.2.` is not a number, and neither
   are `007`, `12.` or `1e`. So each candidate token is also tested with
-  `is_number_prefix_valid(text_so_far + token_text)`, a small state
-  machine over the JSON number grammar. Only 84 tokens are in the mask,
-  so this recheck is cheap.
-- **Stopping rule.** Nothing inside the allowed set ever means "done",
-  because every digit token continues the number. So at each step the
-  *unmasked* argmax is computed as well. While the two agree,
-  generation continues. The moment the model's free choice would rather
-  say something outside the mask (a closing quote, a comma), that is
-  read as "the model thinks this value is finished" and the slot ends.
-  Hard caps (20 tokens for a number, 40 for a string) mean it can never
-  hang.
+  `is_number_prefix(text_so_far + token_text)`, a small state machine
+  over the JSON number grammar. Only 84 tokens are in the mask, so this
+  recheck is cheap.
+- **`integer` is its own type, not a flavour of `number`.** The graded
+  functions type-check their arguments, so a parameter declared
+  `integer` has to arrive as `4` and never as `4.0`. Same mask and same
+  loop, with a stricter prefix test (`is_integer_prefix`): no dot, no
+  exponent. Getting this wrong is invisible in the output file, which
+  looks like perfectly good JSON either way, and only shows up as a
+  failed call at the other end.
+- **The two value kinds stop differently**, because they signal
+  completion differently:
+  - A **number** has no token that means "finished": every allowed
+    token continues it. So the *unmasked* argmax is computed as well,
+    and while the two agree generation continues. The moment the
+    model's free choice would rather write something outside the mask
+    (a comma, a closing brace), the slot ends.
+  - A **string** does have one: the closing `"`. Tokens carrying a
+    quote, like `)",`, are in `string_mask` deliberately (1,344 of
+    them). When the model picks one, the part before the quote is kept
+    and the value ends there. Leaving them out instead costs the last
+    character of a value: asked for `INSERT INTO logs VALUES (1, 2, 3)`
+    the model wants the single token `)",`, and refusing it loses the
+    `)`.
+  - Hard caps (20 tokens for a number, 40 for a string) mean neither
+    can hang.
 - **Booleans** reuse slot 1's machinery: `"true"` and `"false"` are
-  scored as two candidates.
-- **Any other type** (absent from the sample data, but possible) is
-  generated as a string rather than rejected.
+  the two candidates.
+- **Any other type** is generated as a string rather than rejected.
 
 ### Putting one prompt together
 
@@ -219,49 +231,78 @@ parse args -> load catalog -> load prompts -> load model -> build context (decod
   `Prompt` and `OutputResult` at the I/O boundary, plus the context
   above. The decoding logic is plain
   functions with local variables.
-- **Fatal vs. survivable failures, decided deliberately.** A broken
-  catalog is fatal: nothing can be called, so the run stops with a
-  clear message. A broken *prompt* is not: it is skipped with a
-  warning and the rest still run, so the output array holds exactly one
-  entry per accepted prompt. There is no per-prompt recovery path
-  beyond that: generation cannot fail once a catalog has loaded, and a
-  handler for a case that cannot arise would be dead code.
+- **Every bad input file is fatal.** A broken catalog, a broken prompt
+  list, a file that is not an array, an array that is empty: each one
+  stops the run with a single readable message on stderr and a
+  non-zero exit. An earlier version skipped malformed prompt entries
+  with a warning and carried on. Dropping that collapsed the three
+  loading functions into one, and it is the more honest behaviour: the
+  output array is meant to hold one entry per prompt, so quietly
+  returning a shorter one hides the problem rather than reporting it.
+  There is no per-prompt recovery path beyond that, because generation
+  cannot fail once a catalog has loaded, and a handler for a case that
+  cannot arise would be dead code.
 - **Re-encoding the running text** after every skeleton insertion,
   instead of splicing pre-encoded id fragments together. BPE token
   boundaries shift with what precedes them, so splicing can build a
   sequence the model never saw in training. Re-encoding a short string
   each time removes a whole class of boundary bugs at negligible cost.
-- **Forbid, rather than escape.** A `"` or `\` inside a generated
-  string would break the JSON around it. Both were handled by leaving
-  those tokens out of `string_mask` entirely, so nothing that needs
-  escaping can ever be produced, and no escaping pass is needed
-  afterwards. The cost is real and worth naming at defence: a value
-  that genuinely wants a backslash (a regex like `\d+`, a Windows
-  path) is unreachable. Escaping on the way out would allow those,
-  but then a generated `"` could no longer be read as "the value is
-  finished", which is exactly what the stopping rule relies on.
-- **Lazy `llm_sdk` import.** `run()` imports `Small_LLM_Model` after
+- **Escape on the way out, rather than forbid.** A backslash is legal
+  inside a JSON string as long as it is doubled, and real arguments
+  want one: a Windows path, a regex. So `string_mask` keeps the 382
+  backslash-bearing tokens, the model writes the doubled form itself,
+  and `unescape()` reads the finished body back through `json.loads` to
+  collapse each pair into the one character the value really holds. A
+  body holding a half-written escape is not valid JSON, and there the
+  body is kept exactly as it came.
+  This is the only place where the model's spelling is trusted, and
+  nothing downstream depends on it: every value is re-serialised with
+  `json.dumps` before it goes back into the running text or into the
+  output file, so what gets written is correctly escaped whatever came
+  out. The earlier version forbade `\` outright and could not produce
+  `C:\Users\john\config.ini` at all.
+- **Lazy `llm_sdk` import.** `main()` imports `Small_LLM_Model` after
   the input files have been read, so a bad path or malformed JSON is
   reported instantly rather than after torch has finished loading.
 
 
 ## Performance analysis
 
-5 functions, 11 prompts, 1-3 parameters each.
+6 functions, 11 prompts, 1-3 parameters each, on an RTX 4060 laptop
+GPU:
 
 | Stage | Cost |
 | --- | --- |
-| Model load | 2.6 s |
-| Startup: decode vocab + build both masks | 1.6 s (0.4 s of it decoding 151,643 entries) |
-| Whole pipeline, 11 prompts | 14.2 s |
-| Forward passes | 291 total|
-| Time spent inside those passes | 11.4 s, 39 ms each, **80%** of the run |
+| Model load | 2.1 s |
+| Startup: decode vocab + build both masks | 1.1 s |
+| Generation, 11 prompts | 2.9 s |
+| Forward passes | 109 total |
+| Time spent inside those passes | 2.8 s, 26 ms each, **97%** of the run |
 
-The dominant cost is the number of `get_logits_from_input_ids` calls,
-one full forward pass each. The masking itself does not show up: it is
-a single vectorised `numpy.where` + `argmax` per step, and the
-number-prefix recheck loops over only the 84 tokens in the number mask.
-The remaining ~20% is startup, tokenizer calls and JSON I/O.
+The cost is the number of `get_logits_from_input_ids` calls, one full
+forward pass each, and nothing else shows up: masking is a single
+vectorised `numpy.where` + `argmax` per step, and the number-prefix
+recheck loops over only the 84 tokens in the number mask.
+
+So the two things worth tuning are the count of those calls and the
+length of the prompt each one has to read, and both were:
+
+- **Function selection went from 12 forward passes to 1.** Scoring
+  every candidate in full needs one pass per distinct token prefix
+  across the whole catalog. Walking the candidates together needs one
+  pass only where they actually disagree, which here is the second
+  token.
+- **The prompt went from 263 tokens to 208.** A forward pass has no
+  cached state to reuse, so it re-reads the whole prefix every time
+  and its cost tracks the prompt length directly. The instructions were
+  cut to one line and the worked example to one function.
+
+Together that is 275 passes down to 109, each one cheaper. On a CPU,
+where a pass costs about 2.4 s instead of 26 ms, the same 11 prompts
+went from **9 min 13 s to 2 min 19 s**, which is what puts the run
+inside the five-minute budget on a machine with no GPU. The output is
+byte-identical on both: decoding is pure `argmax` with no sampling, so
+there is no seed and no run-to-run variation.
 
 Two consequences worth stating plainly:
 
@@ -271,12 +312,23 @@ Two consequences worth stating plainly:
   model would give worse *answers*, never invalid *output*.
 - **Accuracy is the model's job.** Which function and which argument
   values come out depends on how well a 0.6B model scores the right
-  tokens. On the 11 sample prompts it picks the correct function every
-  time, and the correct argument values everywhere except one regex
-  case: for *"replace all numbers ... with NUMBERS"* it fills `regex`
-  with the literal `34` from the sentence instead of a general
-  pattern. A larger model would choose better; nothing about the
-  output's validity changes either way.
+  tokens. It picks the correct function on all 22 moulinette prompts,
+  public and private, and scores 9/11 on each set. The four misses are
+  all argument values, and all four are the model's judgement rather
+  than a decoding failure:
+  - two regex cases, where *"replace all numbers"* has to become
+    `\d+`. The model copies the literal `34` out of the sentence
+    instead of generalising.
+  - `/home/user/data.json`, where it drops the leading slash. Its top
+    choice after the opening quote is the token `home`; ` /` is only
+    third.
+  - `Say "hello" to {name}`, a value that itself contains quotes. The
+    model loses the sentence early and writes `Say {name} to {user}`,
+    so it never reaches the point where the quotes would matter.
+
+  A larger model would choose better. Nothing about the output's
+  validity changes either way, and none of these four produce
+  unparseable JSON or a wrongly typed argument.
 
 ## Challenges faced
 - **Decoding `vocab.json` correctly.** The file maps ids to
@@ -302,13 +354,25 @@ Two consequences worth stating plainly:
   model signal completion itself, with no dedicated stop token.
 - **A raw-logit scoring bug.** The first version of function selection
   summed each candidate's raw logits, which silently favours whichever
-  name has more tokens; every prompt picked the longest name. The fix
-  was length-normalised log-probabilities, the standard way to compare
-  sequences of different lengths.
-- **Validating without the real model.** Downloading and running a 0.6B
-  model for every check is slow and non-deterministic. A stand-in
-  implementing the same four public methods and returning scripted
-  logits makes the decoding logic testable in milliseconds.
+  name has more tokens; every prompt picked the longest name. Scoring
+  was moved to length-normalised log-probabilities, and later dropped
+  altogether for the prefix walk, which never compares two candidates
+  against each other in the first place: it only ever compares tokens
+  at the same position, where the logits are directly comparable.
+- **Losing the last character of a string.** The stopping rule used to
+  end a value as soon as the model's free choice fell outside the mask,
+  throwing that token away. But a BPE token is not one character: the
+  model's choice at the end of `INSERT INTO logs VALUES (1, 2, 3` is
+  the single token `)",`, so the `)` went out with the quote. This was
+  invisible in the output file, which still held valid JSON, and only
+  showed up as a wrong answer. Letting quote-bearing tokens into the
+  mask and keeping the part in front of the quote fixed it, and turned
+  the closing quote into a real stop signal rather than an accident.
+- **Reading the type list too narrowly.** The definitions use four
+  types, not three: `integer` sits alongside `number`, and a
+  parameter that falls through to the string branch comes out as
+  `"4"`. The graded functions assert on their argument types, so the
+  call fails at the far end while the output file still looks fine.
 
 
 ## Testing strategy
@@ -333,7 +397,7 @@ catalog, missing fields, and missing files.
 code: the target invokes the same CLI a reviewer would. It is one
 generation run, `functions_all.json` (17 functions) against
 `prompts_all.json` (40 prompts), so the model is loaded exactly once,
-followed by eight malformed-input cases inverted with a shell `!`.
+followed by nine malformed-input cases inverted with a shell `!`.
 Those pass by failing, and they are nearly free: a bad input file is
 reported before `llm_sdk` is ever imported. Make stops at the first
 case that misbehaves. The whole target takes about three minutes and
@@ -350,11 +414,28 @@ does not do is assert which function the model picks: that is the
 model's judgement, it is reviewed by reading the output, and pinning it
 down in an assertion would only encode today's answers.
 
+**The moulinette, both sets.** The graded harness ships its own public
+and private prompt sets, and both are run before anything is
+committed:
+
+```bash
+cd moulinette
+uv run python -m moulinette prepare_exercises --set private
+uv run python -m moulinette grade_student_answers --set private \
+    --student_answer_path ../data/output/function_calling_results.json
+```
+
+This is the only check that scores argument values rather than just
+their shape, because it calls the real function with what came out and
+compares the result. It currently reports 9/11 on each set. Both
+numbers are reproducible: decoding is `argmax` with no sampling, and
+the output is byte-identical on GPU and CPU.
+
 Final verification is end to end against the real model: `make run` on
 the bundled files, checking the output is valid JSON, has one entry per
 prompt with exactly the three required keys, and that the names and
 argument values are actually right. Every change also has to leave
-`make lint` and `make lint-strict` clean.
+`make lint` clean, which runs both flake8 and mypy.
 
 ## Example usage
 ```

@@ -24,4 +24,4 @@ class OutputResult(BaseModel):
     """One output entry: the chosen function and its typed arguments."""
     prompt: str
     name: str
-    parameters: dict[str, float | str | bool]
+    parameters: dict[str, bool | int | float | str]
