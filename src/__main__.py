@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+import time
 from src import constraints, generator, utils
 from src.models import FunctionDef, Prompt
 
@@ -10,7 +11,7 @@ INPUT = "data/input/function_calling_tests.json"
 OUTPUT = "data/output/function_calling_results.json"
 
 
-def parse_args() -> argparse.Namespace:
+def arg_parse() -> argparse.Namespace:
     """Parse the three file-path flags, all optional."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--functions_definition", default=FUNCDEF)
@@ -21,7 +22,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     """Run the whole pipeline, from input files to output file."""
-    args = parse_args()
+    args = arg_parse()
+    start_time = time.time()
 
     print(f"Loading functions from {args.functions_definition}")
     functions = utils.load_json_array(args.functions_definition, FunctionDef)
@@ -42,13 +44,14 @@ def main() -> None:
     results = []
     for index, record in enumerate(prompts, start=1):
         print(f"({index}/{len(prompts)}) {record.prompt!r}")
-        result = generator.generate_result_for_prompt(
+        result = generator.generate_result(
             context, functions, record.prompt)
         print(f"{result.name}({result.parameters})")
         results.append(result)
 
     utils.write_results(args.output, results)
     print(f"Done. Results written to {args.output}")
+    print(f"Total time: {time.time() - start_time:.2f} seconds")
 
 
 if __name__ == "__main__":
