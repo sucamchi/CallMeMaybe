@@ -2,14 +2,12 @@
 
 import json
 import os
-from typing import Any, TypeVar
+from typing import Any
 from pydantic import BaseModel, ValidationError
 from src.models import OutputResult
 
-Model = TypeVar("Model", bound=BaseModel)
 
-
-def load_json_array(path: str, model: type[Model]) -> list[Model]:
+def load_json_array(path: str, model: type[BaseModel]) -> list[Any]:
     """Read a JSON array from a file and validate each entry as model."""
     try:
         with open(path, encoding="utf-8") as file:
