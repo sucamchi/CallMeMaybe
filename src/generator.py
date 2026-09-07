@@ -3,8 +3,8 @@ assembles the results."""
 
 import json
 from src.constraints import (
-    GenerationContext, choose_from_candidates, generate_integer_value,
-    generate_number_value, generate_string_value)
+    GenerationContext, choose_from_candidates, generate_int,
+    generate_float, generate_string)
 from src.models import FunctionDef, OutputResult
 
 
@@ -39,7 +39,7 @@ def choose_function(
     return by_name[choose_from_candidates(context, prompt_ids, candidates)]
 
 
-def generate_value(
+def parameter_type(
         context: GenerationContext, text: str,
         param_type: str) -> bool | int | float | str:
     """Fill one argument slot, decoded as its declared type.
@@ -49,9 +49,9 @@ def generate_value(
     so splicing can build a sequence the model has never seen.
     """
     if param_type == "number":
-        return generate_number_value(context, context.encode(text))
+        return generate_float(context, context.encode(text))
     if param_type == "integer":
-        return generate_integer_value(context, context.encode(text))
+        return generate_int(context, context.encode(text))
     if param_type == "boolean":
         candidates = {"true": context.encode("true"),
                       "false": context.encode("false")}
@@ -61,10 +61,10 @@ def generate_value(
     # Any other type is written as a string. Its opening quote goes in
     # before generation so the model can see it is inside a string
     # before it writes the first character.
-    return generate_string_value(context, context.encode(text + '"'))
+    return generate_string(context, context.encode(text + '"'))
 
 
-def generate_result_for_prompt(
+def generate_result(
         context: GenerationContext, functions: list[FunctionDef],
         prompt: str) -> OutputResult:
     """Run the full skeleton-plus-slot generation for one prompt."""
@@ -77,7 +77,7 @@ def generate_result_for_prompt(
         if index > 0:
             text += ", "
         text += f'"{param_name}": '
-        value = generate_value(context, text, param.type)
+        value = parameter_type(context, text, param.type)
         parameters[param_name] = value
         # Writing the value back as JSON re-adds the quotes around a
         # string, escapes what is inside it, and turns a bool into

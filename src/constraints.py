@@ -149,7 +149,7 @@ def build_generation_context(model: Any) -> GenerationContext:
             vocabulary, vocab_size, is_string_token))
 
 
-def generate_number_text(
+def generate_number_token(
         context: GenerationContext, prompt_ids: list[int],
         stays_valid: Callable[[str], bool]) -> str:
     """Generate a numeric value one token at a time, as raw text.
@@ -189,22 +189,22 @@ def generate_number_text(
     return text
 
 
-def generate_number_value(
+def generate_float(
         context: GenerationContext, prompt_ids: list[int]) -> float:
     """Generate a JSON number, falling back to 0.0 if none came out."""
     try:
         return float(
-            generate_number_text(context, prompt_ids, is_number_prefix))
+            generate_number_token(context, prompt_ids, is_number_prefix))
     except ValueError:
         return 0.0
 
 
-def generate_integer_value(
+def generate_int(
         context: GenerationContext, prompt_ids: list[int]) -> int:
     """Generate a whole JSON number, falling back to 0 if none came out."""
     try:
         return int(
-            generate_number_text(context, prompt_ids, is_integer_prefix))
+            generate_number_token(context, prompt_ids, is_integer_prefix))
     except ValueError:
         return 0
 
@@ -224,7 +224,7 @@ def unescape(body: str) -> str:
         return body
 
 
-def generate_string_value(
+def generate_string(
         context: GenerationContext, prompt_ids: list[int]) -> str:
     """Generate the body of a JSON string, quotes excluded.
 
