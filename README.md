@@ -12,9 +12,13 @@ into a structured **function call**. For example, given the prompt:
 it does not answer "5". Instead, it answers:
 
 ```json
-{"prompt": "What is the sum of 2 and 3?",
- "name": "fn_add_numbers",
- "parameters": {"a": 2.0, "b": 3.0}}
+[
+  {
+    "prompt": "What is the sum of 2 and 3?",
+    "name": "fn_add_numbers",
+    "parameters": {"a": 2.0, "b": 3.0}
+  }
+]
 ```
 
 It works out *which* tool would answer the question and *what arguments* to hand it. 
