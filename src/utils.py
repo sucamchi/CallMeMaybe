@@ -43,7 +43,7 @@ def build_vocabulary(model: Any) -> dict[int, str]:
     except Exception:
         raise ValueError(f"could not read {vocab_file_path}")
 
-    # The file is a {text: id} map, so the ids are its values. Its keys
+    # The file is a {text: id} dictionary, where ids == values. Its keys
     # are byte-substituted placeholders, not text a token really says,
     # which is why the text comes back from decode() instead.
     return {int(id): str(model.decode([int(id)])) for id in vocab.values()}

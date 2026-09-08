@@ -33,7 +33,7 @@ def build_prompt_text(functions: list[FunctionDef], prompt: str) -> str:
 def choose_function(
         context: GenerationContext, prompt_ids: list[int],
         functions: list[FunctionDef]) -> FunctionDef:
-    """Let the model pick one name out of the catalog, and nothing else."""
+    """Let the model pick one function from the catalog"""
     by_name = {function.name: function for function in functions}
     candidates = {name: context.encode(name) for name in by_name}
     return by_name[choose_from_candidates(context, prompt_ids, candidates)]
@@ -43,11 +43,7 @@ def parameter_type(
         context: GenerationContext, text: str,
         param_type: str) -> bool | int | float | str:
     """Fill one argument slot, decoded as its declared type.
-
-    The running text is re-encoded here rather than spliced together
-    from token ids: BPE token boundaries shift with what precedes them,
-    so splicing can build a sequence the model has never seen.
-    """
+    The model is constrained to produce a valid value of that type."""
     if param_type == "number":
         return generate_float(context, context.encode(text))
     if param_type == "integer":
@@ -58,9 +54,7 @@ def parameter_type(
         choice = choose_from_candidates(
             context, context.encode(text), candidates)
         return choice == "true"
-    # Any other type is written as a string. Its opening quote goes in
-    # before generation so the model can see it is inside a string
-    # before it writes the first character.
+    # Any other type is written as a string.
     return generate_string(context, context.encode(text + '"'))
 
 

@@ -14,11 +14,8 @@ MAX_STRING_TOKENS = 40
 
 def is_number_prefix(text: str) -> bool:
     """True if text is a JSON number or could still grow into one.
-
-    This runs on half-finished values, so "-" and "1." have to pass
-    even though neither is a number yet. Only text that can never
-    become one, like "01" or "1.2.", is rejected.
-    """
+    Example of a valid prefix: "-3.14e+0".
+    Example of an invalid prefix: "1.2.3"."""
     if text in ("", "-"):
         return True
 
@@ -99,8 +96,6 @@ def build_char_class_mask(
     """Precompute which token ids decode to a given char class."""
     mask = np.zeros(vocab_size, dtype=bool)
     for token_id, text in vocabulary.items():
-        # The vocab file can name ids past the end of a logits row (see
-        # build_generation_context), and those have no slot to mask in.
         if 0 <= token_id < vocab_size and text and is_allowed(text):
             mask[token_id] = True
     return mask
@@ -192,9 +187,9 @@ def generate_number_token(
 def generate_float(
         context: GenerationContext, prompt_ids: list[int]) -> float:
     """Generate a JSON number, falling back to 0.0 if none came out."""
+    text = generate_number_token(context, prompt_ids, is_number_prefix)
     try:
-        return float(
-            generate_number_token(context, prompt_ids, is_number_prefix))
+        return float(text)
     except ValueError:
         return 0.0
 
@@ -202,9 +197,9 @@ def generate_float(
 def generate_int(
         context: GenerationContext, prompt_ids: list[int]) -> int:
     """Generate a whole JSON number, falling back to 0 if none came out."""
+    text = generate_number_token(context, prompt_ids, is_integer_prefix)
     try:
-        return int(
-            generate_number_token(context, prompt_ids, is_integer_prefix))
+        return int(text)
     except ValueError:
         return 0
 
@@ -212,7 +207,7 @@ def generate_int(
 def unescape(body: str) -> str:
     """Turn a raw string body into the text it stands for.
 
-    The model writes JSON escapes itself, so a Windows path arrives with
+    The model writes JSON-escapes itself, so a Windows path arrives with
     every backslash doubled the way JSON asks for. Reading the body back
     with json is what collapses each pair into the one character the
     value really holds. A half-written escape is not valid JSON, and
