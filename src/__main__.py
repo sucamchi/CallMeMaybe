@@ -2,7 +2,7 @@
 
 import argparse
 import sys
-import time
+from time import time
 from src import constraints, generator, utils
 from src.models import FunctionDef, Prompt
 
@@ -23,7 +23,7 @@ def arg_parse() -> argparse.Namespace:
 def main() -> None:
     """Run the whole pipeline, from input files to output file."""
     args = arg_parse()
-    start_time = time.time()
+    start_time = time()
 
     print(f"Loading functions from {args.functions_definition}")
     functions = utils.load_json_array(args.functions_definition, FunctionDef)
@@ -51,7 +51,7 @@ def main() -> None:
 
     utils.write_results(args.output, results)
     print(f"Done. Results written to {args.output}")
-    print(f"Total time: {time.time() - start_time:.2f} seconds")
+    print(f"Total time: {time() - start_time:.2f} seconds")
 
 
 if __name__ == "__main__":
