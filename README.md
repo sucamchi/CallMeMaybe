@@ -2,7 +2,7 @@
 # CallMeMaybe
 
 ## Description
-CallMeMaybe is a command-line tool that turns a natural-language request
+CallMeMaybe is a program that turns a natural-language request
 into a structured **function call**. For example, given the prompt:
 
 ```
@@ -17,8 +17,7 @@ it does not answer "5". Instead, it answers:
  "parameters": {"a": 2.0, "b": 3.0}}
 ```
 
-The program works out *which* tool would answer the question and *what arguments* to hand it. 
-It never adds anything.
+It works out *which* tool would answer the question and *what arguments* to hand it. 
 
 It runs a small local model (Qwen3-0.6B) through `llm_sdk`. Asked
 politely for JSON, the model returns something parseable maybe
@@ -58,7 +57,7 @@ while not finished:
     ids.append(argmax(logits))
 ```
 
-### 4. Constrained decoding: censor the list before you pick
+### 4. Constrained decoding
 
 Between "get the logits" and "pick the best one", insert one step: set the
 logit of every token you do not want to negative infinity.
@@ -74,12 +73,10 @@ only among the options that were permitted. If a number is being
 generated and only number-shaped tokens are allowed, the next character
 *cannot* be anything else.
 
-That is how reliability jumps to 100%.
 
 ### 5. What the SDK is asked for
 
-Only four public methods are used, and no private attribute is ever
-touched:
+Only four public methods are used:
 
 | SDK method | Used by | For |
 | --- | --- | --- |
@@ -96,8 +93,7 @@ lists and numpy arrays.
 ### 6. `vocab.json` does not contain plain text
 
 To mask tokens you must know what each id *says*, so you need an
-`{id: text}` map. `get_path_to_vocab_file()` hands you a `vocab.json`
-that looks like a `{text: id}` map.
+`{id: text}` map from `vocab.json` and a way to decode each id.
 
 Tokenizers are byte-level: a token is a sequence of raw **bytes**, and
 bytes like `0x00` or `0x0A` cannot sit inside a JSON string. So
@@ -117,11 +113,6 @@ entries into a real `dict[int, str]`. The substitution table is not
 rebuilt here: the tokenizer behind `decode()` already reverses it, and
 reimplementing it would only be a second copy to keep correct.
 
-Only the ids the file names are decoded. The special tokens appended
-after it (`<|im_start|>`, `<think>`, `<tool_call>`) are deliberately
-left out, so no mask can ever allow one.
-
-
 ## Algorithm explanation
 
 Generation follows a **skeleton + slot** approach.
@@ -134,9 +125,7 @@ In the following example:
 
 The braces, the `"name"` key, the colons, the commas, the argument
 names, the closing braces: once the shape is known, every one of them
-is forced. There is no decision to make, so there is no reason to ask
-the model and nothing to mask. They are written directly as plain text
-(the *skeleton*). Only two things are real decisions (the *slots*):
+is forced and written as plain text (the *skeleton*). Only two things are real decisions (the *slots*):
 
 ### Slot 1: which function to call
 
@@ -212,20 +201,6 @@ invented function names) only influences *which* valid answer comes
 out. It could never produce invalid output, because structure comes
 from the mask, not from asking nicely.
 
-
-## Execution flow
-
-```
-parse args
-  -> load catalog        (src/utils.py)
-  -> load prompts        (src/utils.py)
-  -> load model          (llm_sdk)
-  -> build context       (decode vocab, precompute masks)
-  -> per prompt: choose function, then fill each slot
-  -> write the JSON array
-```
-
-
 ## Design decisions
 - **One context object instead of four arguments.**
   `GenerationContext` (a pydantic model) holds the model, the decoded
@@ -233,31 +208,10 @@ parse args
   `(context, prompt_ids)` and nothing else, and its three small methods
   (`encode`, `logits`, `decode`) keep the SDK's tensor handling in
   exactly one place.
-- **Functions over classes everywhere else.** Only things holding real
-  data are pydantic models, as required: `FunctionDef`, `FunctionParam`,
-  `Prompt` and `OutputResult` at the I/O boundary, plus the context
-  above. The decoding logic is plain functions with local variables.
 - **Every bad input file is fatal.** A broken catalog, a broken prompt
   list, a file that is not an array, an array that is empty: each one
   stops the run with a single readable message on stderr and a
-  non-zero exit. The output array is meant to hold one entry per
-  prompt, so quietly returning a shorter one would hide the problem
-  rather than report it. There is no per-prompt recovery path beyond
-  that, because generation cannot fail once a catalog has loaded.
-- **Re-encoding the running text** after every skeleton insertion,
-  instead of splicing pre-encoded id fragments together. BPE token
-  boundaries shift with what precedes them, so splicing can build a
-  sequence the model never saw in training. Re-encoding a short string
-  each time removes a whole class of boundary bugs at negligible cost.
-- **Escape on the way out, rather than forbid.** A backslash is legal
-  inside a JSON string as long as it is doubled, and real arguments
-  want one: a Windows path, a regex. So `string_mask` keeps the 382
-  backslash-bearing tokens, the model writes the doubled form itself,
-  and `unescape()` reads the finished body back through `json.loads` to
-  collapse each pair into the one character the value really holds.
-  Nothing downstream depends on the model's spelling: every value is
-  re-serialised with `json.dumps` before it goes back into the running
-  text or into the output file.
+  non-zero exit.
 - **Lazy `llm_sdk` import.** `main()` imports `Small_LLM_Model` after
   the input files have been read, so a bad path or malformed JSON is
   reported instantly rather than after torch has finished loading.
@@ -276,109 +230,69 @@ GPU:
 | Forward passes | 109 total |
 | Time spent inside those passes | 2.8 s, 26 ms each, **97%** of the run |
 
-**Speed.** The cost is the number of `get_logits_from_input_ids` calls,
-one full forward pass each, and nothing else shows up: masking is a
-single vectorised `numpy.where` + `argmax` per step, and the
-number-prefix recheck loops over only the 84 tokens in the number mask.
-So the two things worth keeping small are the number of those calls and
-the length of the prompt each one has to read, because a forward pass
-has no cached state to reuse and re-reads the whole prefix every time.
-On a CPU, where a pass costs about 2.4 s instead of 26 ms, the same 11
-prompts take 2 min 19 s.
 
-**Reliability is 100% by construction**, not by measurement. A value
+**JSON reliability is 100%.** A value
 physically cannot contain a character its mask forbids, so the output
 is always parseable and always matches the declared type. A worse
-model would give worse *answers*, never invalid *output*. Decoding is
-pure `argmax` with no sampling, so there is no seed and no run-to-run
-variation: the output is byte-identical on GPU and on CPU.
+model would give worse *answers*, never invalid *output*.
 
-**Accuracy is the model's job.** Which function and which argument
+**Accuracy** Which function and which argument
 values come out depends on how well a 0.6B model scores the right
 tokens. It picks the correct function on every prompt tested, and gets
-9 of 11 argument sets exactly right on each of the two graded sample
-sets. The misses are the model's judgement rather than a decoding
-failure: it copies the literal `34` out of the sentence where a regex
-needed `\d+`, and it drops the leading slash on `/home/user/data.json`
-because its top-scoring token after the opening quote is `home`. A
-larger model would choose better. None of these produce unparseable
-JSON or a wrongly typed argument.
+aproximately 80%-90% of the argument values right.
 
 
 ## Challenges faced
+
+- **Understanding tokenization, logits and constrained decoding.** 
+  The model is a black box, and the
+  only way to know what it is doing is to look at its inputs and outputs
+  and reading articles and documentation. The SDK's `get_logits_from_input_ids()`
+  returns a tensor of shape `(1, vocab_size)`, which is not documented
+  anywhere, so the first few attempts were full of shape errors.
+
 - **Decoding `vocab.json` correctly.** The file maps ids to
   byte-substituted placeholder strings, not to text, and every mask is
   built from that map, so a mistake here surfaces as "the model is
   bad" rather than as an obvious error. Solved by asking the SDK's
-  `decode()` instead of rebuilding the GPT2 byte-to-unicode table by
-  hand: it is the same table, reached through the tokenizer that wrote
-  the file rather than through a second copy to keep correct.
-- **Knowing where the vocabulary stops.** The ids in `vocab.json` run
-  to 151,642, the logits row is 151,936 wide, and the ids in between
-  are special tokens. 14 of them are not marked "special" in the
-  tokenizer, so `decode()` returns their literal text (`<tool_call>`,
-  `<think>`) rather than `""`, and any of those would pass the string
-  mask's character test. Driving the map from the file's ids, not from
-  the width of a logits row, is what keeps them out.
-- **Deciding when a value is "done".** JSON has no "end of number"
-  token, and by construction every allowed token continues the value.
-  Comparing the model's free (unmasked) choice against the masked one
-  at every step lets the model signal completion itself, with no
-  dedicated stop token.
-- **Losing the last character of a string.** Ending a value by throwing
-  away the token that fell outside the mask works for a number but not
-  for a string, because a BPE token is not one character: at the end of
-  `INSERT INTO logs VALUES (1, 2, 3` the model's choice is the single
-  token `)",`, so the `)` went out with the quote. This stayed
-  invisible in the output file, which still held valid JSON, and only
-  showed up as a wrong answer. Solved by letting quote-bearing tokens
-  into the mask and keeping the part in front of the quote, which turns
-  the closing quote into a real stop signal.
-- **Reading the type list too narrowly.** The definitions use four
-  types, not three: `integer` sits alongside `number`, and a parameter
-  that falls through to the string branch comes out as `"4"`. The
-  function on the other side asserts on its argument types, so the call
-  fails there while the output file still looks fine. Solved with a
-  separate `integer` branch and prefix test.
+  `decode()`.
 
 
 ## Testing strategy
 
-**Committed edge-case inputs.** `data/input/tests/` holds
+**Edge-case inputs.** `data/input/tests/` holds
 alternative catalogs and prompt lists that go well past the bundled
-samples, because the subject warns that the input files are swapped
-during peer review. They cover argument types and number shapes the
-samples never exercise, string values containing quotes, backslashes
-and non-ASCII, and prompts that match no function. A second group of
-deliberately malformed files covers the error paths the subject names:
-invalid JSON, an object where an array is required, an empty array,
-missing fields, and missing files.
-
-**`make test` runs them.** There is no test framework and no test
-code: the target invokes the same CLI a reviewer would. It is one
-generation run over the merged catalog and prompt list, so the model is
-loaded exactly once, followed by the malformed-input cases inverted
-with a shell `!`. Those pass by failing, and they are nearly free: a
-bad input file is reported before `llm_sdk` is ever imported.
+samples, for example;
+invalid JSON, an empty array, missing fields, and missing files.
 
 What this checks is the program's real behaviour end to end: that a
-catalog of unfamiliar shapes still produces one valid entry per prompt,
+catalog of unfamiliar function definitions still produces one valid entry per prompt,
 and that a malformed file produces a readable error and a non-zero exit
-instead of a traceback. What it deliberately does not do is assert
-which function the model picks: that is the model's judgement, and
-pinning it down in an assertion would only encode today's answers.
-
-**`make lint`** runs flake8 and mypy over the source, and has to stay
-clean for every change.
-
+instead of a traceback.
 
 ## Example usage
 
-```bash
-make run
+Given a prompt file containing:
+```json
+[
+  {
+    "prompt": "What is the sum of 2 and 3?"
+  },
+]
+```
+and a function catalog containing:
+```json
+[
+  {
+    "name": "fn_add_numbers",
+    "parameters": [
+      {"name": "a", "type": "number"},
+      {"name": "b", "type": "number"}
+    ]
+  }
+]
 ```
 
-Given a prompt file containing `"What is the sum of 2 and 3?"`,
 `data/output/function_calling_results.json` will contain:
 
 ```json
@@ -389,15 +303,6 @@ Given a prompt file containing `"What is the sum of 2 and 3?"`,
     "parameters": {"a": 2.0, "b": 3.0}
   }
 ]
-```
-
-Any of the three paths can be overridden:
-
-```bash
-uv run python -m src \
-    --functions_definition data/input/functions_definition.json \
-    --input data/input/function_calling_tests.json \
-    --output data/output/function_calling_results.json
 ```
 
 
