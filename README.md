@@ -231,12 +231,12 @@ GPU:
 | Time spent inside those passes | 2.8 s, 26 ms each, **97%** of the run |
 
 
-**JSON reliability is 100%.** A value
+**JSON reliability is 100%:** A value
 physically cannot contain a character its mask forbids, so the output
 is always parseable and always matches the declared type. A worse
 model would give worse *answers*, never invalid *output*.
 
-**Accuracy** Which function and which argument
+**Accuracy:** Which function and which argument
 values come out depends on how well a 0.6B model scores the right
 tokens. It picks the correct function on every prompt tested, and gets
 aproximately 80%-90% of the argument values right.
@@ -247,9 +247,7 @@ aproximately 80%-90% of the argument values right.
 - **Understanding tokenization, logits and constrained decoding.** 
   The model is a black box, and the
   only way to know what it is doing is to look at its inputs and outputs
-  and reading articles and documentation. The SDK's `get_logits_from_input_ids()`
-  returns a tensor of shape `(1, vocab_size)`, which is not documented
-  anywhere, so the first few attempts were full of shape errors.
+  and reading articles and documentation.
 
 - **Decoding `vocab.json` correctly.** The file maps ids to
   byte-substituted placeholder strings, not to text, and every mask is
@@ -304,7 +302,6 @@ and a function catalog containing:
   }
 ]
 ```
-
 
 ## Instructions
 
