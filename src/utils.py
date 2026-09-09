@@ -13,9 +13,9 @@ def load_json_array(path: str, model: type[BaseModel]) -> list[Any]:
         with open(path, encoding="utf-8") as file:
             data = json.load(file)
     except OSError as exc:
-        raise ValueError(f"could not read {path}: {exc}") from exc
+        raise ValueError(f"could not read {path}: {exc}")
     except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid JSON in {path}: {exc}") from exc
+        raise ValueError(f"invalid JSON in {path}: {exc}")
 
     if not isinstance(data, list) or not data:
         raise ValueError(f"{path} must contain a non-empty JSON array")
@@ -23,7 +23,7 @@ def load_json_array(path: str, model: type[BaseModel]) -> list[Any]:
     try:
         return [model.model_validate(entry) for entry in data]
     except ValidationError as exc:
-        raise ValueError(f"invalid entry in {path}: {exc}") from exc
+        raise ValueError(f"invalid entry in {path}: {exc}")
 
 
 def write_results(path: str, results: list[OutputResult]) -> None:
@@ -35,7 +35,7 @@ def write_results(path: str, results: list[OutputResult]) -> None:
 
 
 def build_vocabulary(model: Any) -> dict[int, str]:
-    """Map every id in the model's vocab.json to the text it decodes to."""
+    """Decode the model's vocab.json into a {id: text} dictionary."""
     vocab_file_path = model.get_path_to_vocab_file()
     try:
         with open(vocab_file_path, encoding="utf-8") as file:

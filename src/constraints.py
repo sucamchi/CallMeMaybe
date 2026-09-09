@@ -205,8 +205,7 @@ def generate_int(
 
 
 def unescape(body: str) -> str:
-    """Turn a raw string body into the text it stands for.
-
+    """
     The model writes JSON-escapes itself, so a Windows path arrives with
     every backslash doubled the way JSON asks for. Reading the body back
     with json is what collapses each pair into the one character the
@@ -246,10 +245,6 @@ def choose_from_candidates(
         context: GenerationContext, prompt_ids: list[int],
         candidates: dict[str, list[int]]) -> str:
     """Walk the candidates' token sequences together and return the best.
-
-    Only a candidate's own tokens are ever offered to the model, so a
-    name that was not in the catalog can never come out: the same effect
-    as masking every other token to -inf, without ever building a mask.
 
     Every step drops the candidates that disagree with the token just
     picked. A step where the survivors all want the same token needs no
