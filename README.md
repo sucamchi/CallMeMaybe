@@ -1,4 +1,5 @@
 *This project has been created as part of the 42 curriculum by scamlett.*
+
 # CallMeMaybe
 
 ## Description
@@ -99,17 +100,6 @@ lists and numpy arrays.
 To mask tokens you must know what each id *says*, so you need an
 `{id: text}` map from `vocab.json` and a way to decode each id.
 
-Tokenizers are byte-level: a token is a sequence of raw **bytes**, and
-bytes like `0x00` or `0x0A` cannot sit inside a JSON string. So
-GPT2-style tokenizers substitute every byte with a printable Unicode
-stand-in before writing the file. A space becomes `Ġ`, a newline
-becomes `Ċ`:
-
-```
-vocab.json:  "Ġsum" -> 2629      after decoding:  2629 -> " sum"
-vocab.json:  "Ċ"    -> 198       after decoding:  198  -> "\n"
-```
-
 `build_vocabulary` in [`src/utils.py`](src/utils.py) reads the ids
 (the *values*, since the file is a `{text: id}` map) out of it and asks
 the SDK's `decode()` what each one says, turning 151,643 vocabulary
@@ -171,8 +161,7 @@ real logit masking.
 - **`integer` is its own type, not a flavour of `number`.** A parameter
   declared `integer` has to arrive as `4` and never as `4.0`, because
   the function on the other side type-checks its arguments. Same mask
-  and same loop, with a stricter prefix test (`is_integer_prefix`): no
-  dot, no exponent.
+  and same loop, with a stricter prefix test (`is_integer_prefix`).
 - **The two value kinds stop differently**, because they signal
   completion differently:
   - A **number** has no token that means "finished": every allowed
@@ -209,8 +198,8 @@ from the mask, not from asking nicely.
 - **One context object instead of four arguments.**
   `GenerationContext` (a pydantic model) holds the model, the decoded
   vocabulary and both masks. So the decoding functions take
-  `(context, prompt_ids)` and nothing else, and its three small methods
-  (`encode`, `logits`, `decode`) keep the SDK's tensor handling in
+  `(context, prompt_ids)` and nothing else, and its three methods
+  (`encode`, `logits`, `decode`) keep the SDK's handling in
   exactly one place.
 - **Every bad input file is fatal.** A broken catalog, a broken prompt
   list, a file that is not an array, an array that is empty: each one
@@ -233,12 +222,13 @@ GPU:
 | Generation, 11 prompts | 2.9 s |
 | Forward passes | 109 total |
 | Time spent inside those passes | 2.8 s, 26 ms each, **97%** of the run |
+| Total time | 11.3 s |
 
 
 **JSON reliability is 100%:** A value
 physically cannot contain a character its mask forbids, so the output
 is always parseable and always matches the declared type. A worse
-model would give worse *answers*, never invalid *output*.
+model would give worse answers, but never invalid JSON.
 
 **Accuracy:** Which function and which argument
 values come out depends on how well a 0.6B model scores the right
@@ -249,22 +239,17 @@ aproximately 80%-90% of the argument values right.
 ## Challenges faced
 
 - **Understanding tokenization, logits and constrained decoding.** 
-  The model is a black box, and the
+  I had no previous experience with LLMs, and the model is a black box, so the
   only way to know what it is doing is to look at its inputs and outputs
   and reading articles and documentation.
-
-- **Decoding `vocab.json` correctly.** The file maps ids to
-  byte-substituted placeholder strings, not to text, and every mask is
-  built from that map, so a mistake here surfaces as "the model is
-  bad" rather than as an obvious error. Solved by asking the SDK's
-  `decode()`.
-
+- **Understanding the SDK.** The documentation is sparse, and the
+  examples are not enough to understand how to use it. I had to read
+  the source code and experiment with it to understand how to use it.
 
 ## Testing strategy
 
 **Edge-case inputs.** `data/input/tests/` holds
-alternative catalogs and prompt lists that go well past the bundled
-samples, for example;
+alternative catalogs and prompt lists, both valid and invalid, for example;
 invalid JSON, an empty array, missing fields, and missing files.
 
 What this checks is the program's real behaviour end to end: that a
@@ -330,6 +315,7 @@ make clean   # removes caches
 - [Controlling your LLM: Deep dive into Constrained Generation](https://medium.com/@docherty/controlling-your-llm-deep-dive-into-constrained-generation-1e561c736a20)
 - [Logits and next-token prediction](https://mikexcohen.substack.com/p/llm-breakdown-26-logits-and-next)
 - [Constrained Decoding](https://mbrenndoerfer.com/writing/constrained-decoding-structured-llm-output)
+- [Structured Outputs and Constrained Decoding in Production](https://www.tmls.nyc/research/structured-outputs-constrained-decoding)
 
 ## AI usage
 
