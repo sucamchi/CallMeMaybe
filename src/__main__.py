@@ -51,7 +51,9 @@ def main() -> None:
 
     utils.write_results(args.output, results)
     print(f"Done. Results written to {args.output}")
-    print(f"Total time: {time() - start_time:.2f} seconds")
+    elapsed = int(time() - start_time)
+    minutes, seconds = divmod(elapsed, 60)
+    print(f"Total time: {minutes} minutes and {seconds} seconds")
 
 
 if __name__ == "__main__":
